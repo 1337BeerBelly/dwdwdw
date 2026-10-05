@@ -48,6 +48,10 @@ freeclaude - Claude Code через OmniRoute
          Auto-Import, Import Token или API Key -
          в Dashboard -> Providers -> Kiro.
 
+    API-ключ Kiro: Dashboard -> Providers -> Kiro -> "API ключ"
+    -> вставить ключ -> "Проверить и сохранить API-ключ".
+    Регион AWS - как у ключа (обычно us-east-1).
+
     Код и ссылку из окна авторизации можно открыть на телефоне:
     шлюз сам дождётся подтверждения. Без портала Kiro подключается
     через Auto-Import, Import Token или API Key - см.

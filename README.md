@@ -131,7 +131,7 @@ omniroute serve --daemon --no-open
 
 Kiro AI отдаёт модели Claude (Sonnet / Haiku / Opus) в рамках бесплатного тарифа провайдера (порядка 50 кредитов в месяц на аккаунт). Язык интерфейса дашборда переключается в правом верхнем углу.
 
-Вход устроен как device-code: окно авторизации показывает код и ссылку, а шлюз сам ждёт подтверждения. Поэтому ссылку можно открыть **на телефоне** и ввести код там — это выручает, когда портал не открывается на компьютере. Если совсем не выходит, Kiro подключается и без портала: Auto-Import из Kiro CLI/IDE, Import Token или API Key. Диагностика — `kiro-check`, при ошибке «Connection Failed / invalid_token_response» — `kiro-check --probe-kiro`; подробности — [docs/KIRO_TROUBLESHOOTING.md](docs/KIRO_TROUBLESHOOTING.md).
+Вход устроен как device-code: окно авторизации показывает код и ссылку, а шлюз сам ждёт подтверждения. Поэтому ссылку можно открыть **на телефоне** и ввести код там — это выручает, когда портал не открывается на компьютере. Если совсем не выходит, Kiro подключается и без портала: Auto-Import из Kiro CLI/IDE, Import Token или API Key (ключ вставляется в **Providers → Kiro → «API ключ» → «Проверить и сохранить API-ключ»**; на дашборде может быть список «Счета» — добавление учётной записи там же). Диагностика — `kiro-check`, при ошибке «Connection Failed / invalid_token_response» — `kiro-check --probe-kiro`; подробности — [docs/KIRO_TROUBLESHOOTING.md](docs/KIRO_TROUBLESHOOTING.md).
 
 ### 5. Ключ доступа (необязательно)
 
