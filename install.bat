@@ -47,6 +47,7 @@ if exist "%OR_SRC%\freeclaude-stop.bat" copy /y "%OR_SRC%\freeclaude-stop.bat" "
 if exist "%OR_SRC%\freeclaude-status.bat" copy /y "%OR_SRC%\freeclaude-status.bat" "%OR_DST%\" >nul
 if exist "%OR_SRC%\freeclaude-update.bat" copy /y "%OR_SRC%\freeclaude-update.bat" "%OR_DST%\" >nul
 if exist "%OR_SRC%\README.md" copy /y "%OR_SRC%\README.md" "%OR_DST%\" >nul
+if exist "%OR_SRC%\START_HERE.txt" copy /y "%OR_SRC%\START_HERE.txt" "%OR_DST%\" >nul
 if exist "%OR_SRC%\docs\TROUBLESHOOTING.md" mkdir "%OR_DST%\docs" >nul 2>&1
 if exist "%OR_SRC%\docs\TROUBLESHOOTING.md" copy /y "%OR_SRC%\docs\TROUBLESHOOTING.md" "%OR_DST%\docs\" >nul
 goto :copied
