@@ -1,0 +1,10 @@
+# Батники Windows должны иметь CRLF-переводы строк, иначе cmd.exe
+# в редких случаях путает конец строки (особенно в конструкциях if/goto).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Документация и прочие текстовые файлы — LF.
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
