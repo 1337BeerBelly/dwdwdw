@@ -1,0 +1,136 @@
+#!/usr/bin/env node
+/**
+ * kiro-probe.mjs — проверка диагностики social-входа Kiro.
+ *
+ * Поднимает локальный макет Kiro (два эндпоинта) и проверяет, что инструмент
+ * правильно распознаёт: корректное «ждём», ошибку, изменение формата (то самое
+ * invalid_token_response) и ответ-не-JSON от прокси.
+ *
+ *   node tests/kiro-probe.mjs
+ */
+
+import http from "node:http";
+import {
+  classifyKiroPoll,
+  runKiroSocialProbe,
+  formatResponse,
+  probeRecommendations,
+} from "../tools/lib/kiro-probe.mjs";
+
+let failed = 0;
+let total = 0;
+const ok = (name, cond, extra = "") => {
+  total++;
+  console.log(`  ${cond ? "OK  " : "FAIL"} ${name}${extra ? " — " + extra : ""}`);
+  if (!cond) failed++;
+};
+
+/* ------------------------- классификация ответов ------------------------- */
+
+console.log("\n1) Классификация ответов Kiro (копия правил OmniRoute)");
+ok("pending через error", classifyKiroPoll(true, 200, { error: "authorization_pending" }) === "pending");
+ok("pending через status", classifyKiroPoll(true, 200, { status: "authorization_pending" }) === "pending");
+ok("slow_down", classifyKiroPoll(true, 200, { status: "slow_down" }) === "pending");
+ok("ошибка по HTTP", classifyKiroPoll(false, 500, {}) === "error");
+ok("ошибка в теле", classifyKiroPoll(true, 200, { error: "access_denied" }) === "error");
+ok("токены — успех", classifyKiroPoll(true, 200, { accessToken: "aoaAAA" }) === "success");
+ok(
+  "2xx без токенов и без пометки — та самая ошибка",
+  classifyKiroPoll(true, 200, { message: "ok", data: null }) === "invalid_token_response"
+);
+
+/* --------------------------- макет сервера Kiro -------------------------- */
+
+function startMock(handlers) {
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const handler = handlers[req.url] || (() => ({ status: 404, json: { error: "not_found" } }));
+      const out = handler({ body: body ? JSON.parse(body) : {}, method: req.method });
+      res.writeHead(out.status ?? 200, { "content-type": out.contentType ?? "application/json" });
+      res.end(out.raw ?? JSON.stringify(out.json ?? {}));
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port }));
+  });
+}
+
+const authorizeOk = {
+  deviceCode: "device-123",
+  userCode: "ABCD-EFGH",
+  verificationUriComplete: "https://example.invalid/verify?code=ABCD-EFGH",
+  expiresInMilliseconds: 300000,
+  intervalInMilliseconds: 5000,
+};
+
+console.log("\n2) Проба: Kiro отвечает корректно (ещё ждём)");
+{
+  const { server, port } = await startMock({
+    "/oauth/device/authorization": () => ({ status: 200, json: authorizeOk }),
+    "/oauth/device/poll": () => ({ status: 200, json: { status: "authorization_pending" } }),
+  });
+  const result = await runKiroSocialProbe({ baseUrl: `http://127.0.0.1:${port}`, timeoutMs: 4000 });
+  ok("шаг 1 пройден", result.shape.deviceCode && result.shape.userCode && result.shape.verificationUriComplete);
+  ok("опрос распознан как «ждём»", result.pollClassification === "pending", result.verdict);
+  const recs = probeRecommendations(result).join(" ");
+  ok("подсказка про истёкший код", /истёк|5 минут/.test(recs), recs.slice(0, 80));
+  ok("вывод форматируется", formatResponse("тест", result.poll).join("\n").includes("HTTP 200"));
+  server.close();
+}
+
+console.log("\n3) Проба: воспроизводится invalid_token_response");
+{
+  const { server, port } = await startMock({
+    "/oauth/device/authorization": () => ({ status: 200, json: authorizeOk }),
+    "/oauth/device/poll": () => ({ status: 200, json: { message: "still working", ok: true } }),
+  });
+  const result = await runKiroSocialProbe({ baseUrl: `http://127.0.0.1:${port}`, timeoutMs: 4000 });
+  ok("распознано как invalid_token_response", result.pollClassification === "invalid_token_response");
+  const recs = probeRecommendations(result).join(" ");
+  ok("совет обновиться", /обновиться/.test(recs));
+  ok("совет про другой способ входа", /Builder ID/.test(recs));
+  ok("совет приложить вывод в issue", /issue/.test(recs));
+  server.close();
+}
+
+console.log("\n4) Проба: прокси отдаёт HTML вместо JSON");
+{
+  const { server, port } = await startMock({
+    "/oauth/device/authorization": () => ({
+      status: 200,
+      contentType: "text/html",
+      raw: "<html><body>Доступ запрещён корпоративным прокси</body></html>",
+    }),
+  });
+  const result = await runKiroSocialProbe({ baseUrl: `http://127.0.0.1:${port}`, timeoutMs: 4000 });
+  ok("шаг 1 не выдал device-код", !result.shape.deviceCode);
+  ok("вердикт authorize-failed", result.verdict === "authorize-failed", result.verdict);
+  const printed = formatResponse("1) запрос device-кода", result.authorize).join("\n");
+  ok("в выводе видно «ответ не JSON»", /не JSON/.test(printed), printed.split("\n")[1]?.slice(0, 60));
+  const recs = probeRecommendations(result).join(" ");
+  ok("подсказка про прокси и Builder ID", /прокси/.test(recs) && /Builder ID/.test(recs));
+  server.close();
+}
+
+console.log("\n5) Проба: Kiro недоступен");
+{
+  const result = await runKiroSocialProbe({ baseUrl: "http://127.0.0.1:9", timeoutMs: 1500 });
+  ok("вердикт authorization-unreachable", result.verdict === "authorization-unreachable", result.verdict);
+  const recs = probeRecommendations(result).join(" ");
+  ok("совет про сеть и Builder ID", /сеть|прокси/.test(recs) && /Builder ID/.test(recs));
+}
+
+console.log("\n6) Проба: отключённый опрос (--poll=false)");
+{
+  const { server, port } = await startMock({
+    "/oauth/device/authorization": () => ({ status: 200, json: authorizeOk }),
+  });
+  const result = await runKiroSocialProbe({ baseUrl: `http://127.0.0.1:${port}`, timeoutMs: 4000, poll: false });
+  ok("опрос не выполнялся", result.poll === null && result.verdict === "authorize-ok");
+  server.close();
+}
+
+console.log(`\nПроверок: ${total}, провалено: ${failed}`);
+process.exit(failed ? 1 : 0);

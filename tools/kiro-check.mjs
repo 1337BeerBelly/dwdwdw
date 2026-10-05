@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
+import { runKiroSocialProbe, formatResponse, probeRecommendations } from "./lib/kiro-probe.mjs";
 import {
   TOOL_VERSION,
   parseArgs,
@@ -25,6 +26,24 @@ import {
   CliError,
   hasTTY,
 } from "./lib/common.mjs";
+
+const HELP = `
+  kiro-check — доступность сервисов авторизации Kiro
+
+  Использование:
+    kiro-check                          проверить домены, шлюз, прокси, часы
+    kiro-check --probe-kiro             дополнительно повторить запросы входа
+                                        Google/GitHub и показать сырые ответы Kiro
+    kiro-check --probe-kiro --login-provider github
+    kiro-check --json > kiro-check.json отчёт файлом (для отправки в чат)
+    kiro-check --port 20128 --timeout 8000
+    kiro-check --version
+    kiro-check --help
+
+  Проба (--probe-kiro) делает два настоящих запроса к Kiro: просит device-код
+  и один раз его опрашивает — ровно как это делает OmniRoute. Ничего не
+  подтверждает и не меняет; код живёт ~5 минут и сам истекает.
+`;
 
 /** Домены и эндпоинты, задействованные во входе в Kiro. */
 const TARGETS = [
@@ -224,6 +243,15 @@ function clockSkew(dateHeader, localDate) {
 }
 
 async function main({ flags }) {
+  if (flagOn(flags, ["help", "h", "?"])) {
+    console.log(HELP);
+    return 0;
+  }
+
+  if (flagOn(flags, ["version", "v"])) {
+    console.log(`kiro-check v${TOOL_VERSION}`);
+    return 0;
+  }
   const timeoutMs = Number(flagValue(flags, ["timeout"], "8000")) || 8000;
   const port = String(flagValue(flags, ["port"], process.env.OMNIROUTE_PORT || "20128"));
   const asJson = flagOn(flags, ["json"]);
@@ -252,6 +280,15 @@ async function main({ flags }) {
   const withDate = results.targets.find((t) => t.http.ok && t.http.date);
   results.env.clockSkewSec = withDate ? clockSkew(withDate.http.date, new Date()) : null;
   results.env.platform = `${process.platform} ${os.release()} · Node ${process.version}`;
+
+  /* ------------------------------- проба ------------------------------- */
+
+  if (flagOn(flags, ["probe-kiro", "probe"])) {
+    const loginProvider = /^github$/i.test(String(flagValue(flags, ["login-provider"], "google")))
+      ? "Github"
+      : "Google";
+    results.probe = await runKiroSocialProbe({ loginProvider, timeoutMs });
+  }
 
   /* ------------------------------ вердикт ------------------------------ */
 
@@ -338,6 +375,33 @@ async function main({ flags }) {
   const failed = failedTargets;
   const googleDown = failed.some((t) => t.host === "accounts.google.com");
   const githubDown = failed.some((t) => t.host === "github.com");
+
+  if (results.probe) {
+    const probe = results.probe;
+    console.log("");
+    console.log(`  Проба входа через ${probe.loginProvider} (${probe.baseUrl}):`);
+    for (const line of formatResponse("1) запрос device-кода", probe.authorize)) console.log(line);
+    if (probe.authorize.data) {
+      const shape = probe.shape;
+      const missing = [];
+      if (!shape.deviceCode) missing.push("deviceCode");
+      if (!shape.userCode) missing.push("userCode");
+      if (!shape.verificationUriComplete) missing.push("verificationUriComplete");
+      line(
+        missing.length ? "!" : "+",
+        "   поля ответа",
+        missing.length ? `нет: ${missing.join(", ")}` : "deviceCode, userCode, ссылка — на месте"
+      );
+    }
+    if (probe.poll) {
+      for (const lineText of formatResponse("2) опрос device-кода", probe.poll)) console.log(lineText);
+      const mark = probe.pollClassification === "pending" ? "+" : probe.pollClassification === "success" ? "+" : "!";
+      line(mark, "   классификация", probe.pollClassification);
+    }
+    console.log("");
+    console.log("  Что это значит:");
+    for (const rec of probeRecommendations(probe)) console.log(`    • ${rec}`);
+  }
 
   console.log("");
   console.log("  ------------------------------------------------------------");

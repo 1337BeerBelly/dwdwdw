@@ -39,6 +39,15 @@ freeclaude - Claude Code через OmniRoute
 
     kiro-check              проверка доменов, шлюза, прокси и часов
 
+    Если при входе через Google/GitHub появляется
+    "Connection Failed / invalid_token_response":
+      1. проверьте версию: omniroute --version (нужна 3.8.50+,
+         обновление: npm install -g omniroute@latest);
+      2. kiro-check --probe-kiro   покажет сырые ответы Kiro;
+      3. подключите Kiro другим способом: Device Code (Builder ID),
+         Auto-Import, Import Token или API Key -
+         в Dashboard -> Providers -> Kiro.
+
     Код и ссылку из окна авторизации можно открыть на телефоне:
     шлюз сам дождётся подтверждения. Без портала Kiro подключается
     через Auto-Import, Import Token или API Key - см.
