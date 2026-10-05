@@ -65,8 +65,9 @@ if errorlevel 1 goto :server_down
 echo     Сервер:       запущен на порту %OR_PORT%
 echo     Дашборд:      http://localhost:%OR_PORT%
 echo     API:          http://localhost:%OR_PORT%/v1
+call omniroute providers list --json > "%OR_TMP%\freeclaude_prov_list.json" 2>nul
 call omniroute providers status --json > "%OR_TMP%\freeclaude_prov.json" 2>nul
-node -e "var fs=require('fs');try{var t=fs.readFileSync(process.argv[1],'utf8');var i=t.indexOf('{');var j=JSON.parse(t.slice(i));var l=(j&&(j.connections||j.list))||[];fs.writeFileSync(process.argv[2],String(typeof j.count==='number'?j.count:l.length));var names=l.map(function(x){return x.provider||x.id||'?'});fs.writeFileSync(process.argv[3],names.length?names.join(', '):'нет')}catch(e){fs.writeFileSync(process.argv[2],'-1');fs.writeFileSync(process.argv[3],'неизвестно')}" "%OR_TMP%\freeclaude_prov.json" "%OR_TMP%\freeclaude_prov_n.txt" "%OR_TMP%\freeclaude_prov_names.txt"
+node -e "var fs=require('fs');function read(p){try{var t=fs.readFileSync(p,'utf8');var i=t.indexOf('{');if(i<0)return null;return JSON.parse(t.slice(i))}catch(e){return null}}function pick(j){if(!j)return null;if(Array.isArray(j.providers))return j.providers;if(Array.isArray(j.connections))return j.connections;if(Array.isArray(j.list))return j.list;return null}var a=pick(read(process.argv[1])),b=pick(read(process.argv[2])),l=a&&a.length?b&&b.length>a.length?b:a:(a||b||null);var n=l?l.length:-1;fs.writeFileSync(process.argv[3],String(n));var names=l?l.map(function(x){return x.provider||x.id||'?'}):[];fs.writeFileSync(process.argv[4],names.length?names.join(', '):'нет')" "%OR_TMP%\freeclaude_prov_list.json" "%OR_TMP%\freeclaude_prov.json" "%OR_TMP%\freeclaude_prov_n.txt" "%OR_TMP%\freeclaude_prov_names.txt"
 set "OR_PN=?"
 set /p OR_PN=<"%OR_TMP%\freeclaude_prov_n.txt"
 set "OR_PNAMES=неизвестно"

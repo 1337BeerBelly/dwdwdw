@@ -362,10 +362,14 @@ if errorlevel 1 exit /b 1
 exit /b 0
 
 rem --- подключён ли хоть один провайдер --------------------------------
+rem Источник истины - база подключений (providers list). Список из
+rem providers status строится по счётчику истечения токенов и для ключей без
+rem срока действия бывает пустым, хотя подключения есть.
 :check_provider
 set "OR_PROV=unknown"
+call omniroute providers list --json > "%OR_TMP%\freeclaude_prov_list.json" 2>nul
 call omniroute providers status --json > "%OR_TMP%\freeclaude_prov.json" 2>nul
-node -e "var fs=require('fs');try{var t=fs.readFileSync(process.argv[1],'utf8');var i=t.indexOf('{');var j=JSON.parse(t.slice(i));var l=(j&&(j.connections||j.list))||[];var n=typeof j.count==='number'?j.count:l.length;process.stdout.write(String(n))}catch(e){process.stdout.write('-1')}" "%OR_TMP%\freeclaude_prov.json" > "%OR_TMP%\freeclaude_prov.txt" 2>nul
+node -e "var fs=require('fs');function read(p){try{var t=fs.readFileSync(p,'utf8');var i=t.indexOf('{');if(i<0)return null;return JSON.parse(t.slice(i))}catch(e){return null}}function cnt(j){if(!j)return -1;var l=j.providers||j.connections||j.list;if(Array.isArray(l))return l.length;if(typeof j.count==='number')return j.count;return -1}var n=Math.max(cnt(read(process.argv[1])),cnt(read(process.argv[2])));process.stdout.write(String(n))" "%OR_TMP%\freeclaude_prov_list.json" "%OR_TMP%\freeclaude_prov.json" > "%OR_TMP%\freeclaude_prov.txt" 2>nul
 set /p OR_PROV=<"%OR_TMP%\freeclaude_prov.txt"
 if "%OR_PROV%"=="0" goto :provider_missing
 exit /b 0
@@ -378,11 +382,13 @@ echo    Claude Code запустится, но запросы будет нек�
 echo.
 echo    Что сделать сейчас:
 echo      1. В открывшемся браузере: Providers -^> Kiro AI
-echo      2. Add connection -^> Builder ID
-echo      3. Войдите через AWS Builder ID, Google или GitHub
+echo      2. Add connection: Builder ID (вход) либо "API ключ"
+echo         (ключ Kiro/CodeWhisperer вставляется в поле "API ключ")
+echo      3. Войдите/подтвердите доступ, затем вернитесь сюда
 echo      4. Вернитесь в это окно и запустите: freeclaude
 echo.
 echo    Дашборд: http://localhost:%OR_PORT%/dashboard/providers
+echo    Проверить подключения: omniroute providers list
 echo  ------------------------------------------------------------
 echo.
 start "" "http://localhost:%OR_PORT%/dashboard/providers"

@@ -141,49 +141,89 @@ async function probeLocal(port, timeoutMs) {
   }
 }
 
+function omnirouteConnectionsList(bin, args) {
+  let res;
+  try {
+    res = spawnSync(bin, args, {
+      encoding: "utf8",
+      shell: true,
+      timeout: 60000,
+      windowsHide: true,
+    });
+  } catch (err) {
+    return { ok: false, reason: "error", detail: String(err?.message || err) };
+  }
+  if (res.error) {
+    return {
+      ok: false,
+      reason: "error",
+      detail: String(res.error.code === "ENOENT" ? "не найден в PATH" : res.error.message),
+    };
+  }
+  if (res.status !== 0) {
+    // Команда нашлась, но не отработала: чаще всего не запущен сам шлюз.
+    const detail = (res.stdout || res.stderr || "").replace(/\s+/g, " ").trim().slice(0, 120);
+    return { ok: false, reason: "exit", status: res.status, detail };
+  }
+  try {
+    const start = res.stdout.indexOf("{");
+    if (start < 0) return { ok: false, reason: "error", detail: `неожиданный ответ команды ${args.join(" ")}` };
+    const data = JSON.parse(res.stdout.slice(start));
+    // providers list -> { providers }, providers status -> { count, connections }, API -> { list }
+    const list = Array.isArray(data.providers)
+      ? data.providers
+      : Array.isArray(data.connections)
+        ? data.connections
+        : Array.isArray(data.list)
+          ? data.list
+          : null;
+    if (!list) return { ok: false, reason: "error", detail: "в ответе нет списка подключений" };
+    return { ok: true, list, count: typeof data.count === "number" ? data.count : list.length };
+  } catch (err) {
+    return { ok: false, reason: "error", detail: String(err?.message || err) };
+  }
+}
+
 function omnirouteKiroConnections() {
   const candidates = process.platform === "win32" ? ["omniroute.cmd", "omniroute"] : ["omniroute"];
   let lastError = "";
+  let exitNote = null;
   for (const bin of candidates) {
-    let res;
-    try {
-      res = spawnSync(bin, ["providers", "status", "--json"], {
-        encoding: "utf8",
-        shell: true,
-        timeout: 60000,
-        windowsHide: true,
-      });
-    } catch (err) {
-      lastError = String(err?.message || err);
-      continue;
-    }
-    if (res.error) {
-      lastError = String(res.error.code === "ENOENT" ? "не найден в PATH" : res.error.message);
-      continue;
-    }
-    if (res.status !== 0) {
-      // Команда нашлась, но не отработала: чаще всего не запущен сам шлюз.
-      const detail = (res.stdout || res.stderr || "").replace(/\s+/g, " ").trim().slice(0, 120);
-      return { ok: false, reason: "exit", status: res.status, detail, total: -1, kiro: -1, names: [] };
-    }
-    try {
-      const start = res.stdout.indexOf("{");
-      if (start < 0) {
-        lastError = "неожиданный ответ команды providers status";
-        continue;
+    // База подключений — источник истины; providers status читает другой,
+    // счётчик истечения токенов, и для ключей без срока действия пуст.
+    const attempts = [
+      ["providers", "list", "--json"],
+      ["providers", "status", "--json"],
+    ];
+    let best = null;
+    let bestCount = -1;
+    for (const args of attempts) {
+      const got = omnirouteConnectionsList(bin, args);
+      if (got.ok) {
+        if (got.list.length > bestCount) {
+          best = got;
+          bestCount = got.list.length;
+        }
+      } else if (got.reason === "exit") {
+        exitNote = got;
+        lastError = got.detail;
+      } else {
+        lastError = got.detail;
       }
-      const data = JSON.parse(res.stdout.slice(start));
-      // CLI отдаёт { count, connections }, API — { list }; поддерживаем оба.
-      const list = data.connections || data.list || [];
-      const kiro = list.filter((item) => String(item.provider || item.id || "").toLowerCase().includes("kiro"));
+    }
+    if (best) {
+      const kiro = best.list.filter((item) =>
+        String(item.provider || item.id || "").toLowerCase().includes("kiro")
+      );
       return {
         ok: true,
-        total: typeof data.count === "number" ? data.count : list.length,
+        total: best.count,
         kiro: kiro.length,
         names: kiro.map((k) => k.name || k.provider),
       };
-    } catch (err) {
-      lastError = String(err?.message || err);
+    }
+    if (exitNote) {
+      return { ok: false, reason: "exit", status: exitNote.status, detail: exitNote.detail, total: -1, kiro: -1, names: [] };
     }
   }
   return { ok: false, reason: "error", detail: lastError, total: -1, kiro: -1, names: [] };
