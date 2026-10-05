@@ -1,0 +1,49 @@
+freeclaude - Claude Code через OmniRoute
+========================================
+
+ЧТО ДЕЛАТЬ (2 шага):
+
+1. Запустите  install.bat
+   - он скопирует всё в C:\bat, добавит папку в PATH,
+     поставит Node.js, OmniRoute и Claude Code,
+     поднимет локальный шлюз и включит его автозапуск;
+   - при установке Node.js может появиться запрос UAC - разрешите.
+
+2. Откройте НОВОЕ окно терминала, перейдите в папку проекта и выполните:
+
+       freeclaude
+
+   При первом запуске откроется дашборд http://localhost:20128 -
+   подключите провайдера: Providers -> Kiro AI -> Add connection -> Builder ID
+   (вход через AWS Builder ID, Google или GitHub), затем запустите
+   freeclaude ещё раз.
+
+
+ЧАСТЫЕ КОМАНДЫ:
+
+    freeclaude                      запустить Claude Code
+    freeclaude -p "вопрос"          разовый запрос без интерактива
+    freeclaude --dir C:\dev\app     запустить в папке проекта
+    freeclaude --setup              только установить/проверить и поднять шлюз
+    freeclaude --version            версии компонентов
+    freeclaude-status               статус, список провайдеров, автозапуск
+    freeclaude-stop                 остановить шлюз
+    freeclaude-update               обновить OmniRoute и Claude Code
+
+Все остальные аргументы передаются в Claude Code:
+    freeclaude --continue
+    freeclaude --model sonnet
+
+
+ЕСЛИ ЧТО-ТО НЕ РАБОТАЕТ:
+
+    omniroute doctor        диагностика шлюза
+    claude doctor           диагностика Claude Code
+    freeclaude-status       состояние связки
+
+Подробный разбор типовых ошибок - в файле docs\TROUBLESHOOTING.md,
+полное руководство - в README.md.
+
+ВАЖНО ПРО БЕЗОПАСНОСТЬ: комплект настраивает шлюз так, что он доступен
+только с этой машины (127.0.0.1). Не публикуйте его в сеть без ключа:
+OmniRoute работает с вашими ключами и квотой провайдеров.
