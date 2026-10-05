@@ -50,6 +50,11 @@ if exist "%OR_SRC%\README.md" copy /y "%OR_SRC%\README.md" "%OR_DST%\" >nul
 if exist "%OR_SRC%\START_HERE.txt" copy /y "%OR_SRC%\START_HERE.txt" "%OR_DST%\" >nul
 if exist "%OR_SRC%\docs\TROUBLESHOOTING.md" mkdir "%OR_DST%\docs" >nul 2>&1
 if exist "%OR_SRC%\docs\TROUBLESHOOTING.md" copy /y "%OR_SRC%\docs\TROUBLESHOOTING.md" "%OR_DST%\docs\" >nul
+if exist "%OR_SRC%\docs\ARENA_BRIDGE.md" copy /y "%OR_SRC%\docs\ARENA_BRIDGE.md" "%OR_DST%\docs\" >nul
+if exist "%OR_SRC%\arena-pack.bat" copy /y "%OR_SRC%\arena-pack.bat" "%OR_DST%\" >nul
+if exist "%OR_SRC%\arena-unpack.bat" copy /y "%OR_SRC%\arena-unpack.bat" "%OR_DST%\" >nul
+if exist "%OR_SRC%\tools\arena-pack.mjs" xcopy /y /i /q "%OR_SRC%\tools\*.mjs" "%OR_DST%\tools\" >nul
+if exist "%OR_SRC%\tools\lib\zip.mjs" xcopy /y /i /q "%OR_SRC%\tools\lib\*.mjs" "%OR_DST%\tools\lib\" >nul
 goto :copied
 
 :copy_failed
@@ -107,6 +112,10 @@ echo    Дашборд OmniRoute:  http://localhost:%OR_PORT%
 echo    Статус:             freeclaude-status
 echo    Остановить шлюз:    freeclaude-stop
 echo    Обновить:           freeclaude-update
+echo.
+echo    Обмен файлами с чатом Arena (без OmniRoute):
+echo      arena-pack           упаковать проект и отправить его в чат
+echo      arena-unpack         разложить полученные правки обратно
 echo  ============================================================
 echo.
 echo   Нажмите любую клавишу, чтобы закрыть окно...
