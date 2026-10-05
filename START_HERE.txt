@@ -35,6 +35,16 @@ freeclaude - Claude Code через OmniRoute
     freeclaude --model sonnet
 
 
+ЕСЛИ НЕ ОТКРЫВАЕТСЯ ПОРТАЛ KIRO ПРИ ПОДКЛЮЧЕНИИ ПРОВАЙДЕРА:
+
+    kiro-check              проверка доменов, шлюза, прокси и часов
+
+    Код и ссылку из окна авторизации можно открыть на телефоне:
+    шлюз сам дождётся подтверждения. Без портала Kiro подключается
+    через Auto-Import, Import Token или API Key - см.
+    docs\KIRO_TROUBLESHOOTING.md
+
+
 ЕСЛИ ЧТО-ТО НЕ РАБОТАЕТ:
 
     omniroute doctor        диагностика шлюза

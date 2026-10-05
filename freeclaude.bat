@@ -365,7 +365,7 @@ rem --- подключён ли хоть один провайдер -----------
 :check_provider
 set "OR_PROV=unknown"
 call omniroute providers status --json > "%OR_TMP%\freeclaude_prov.json" 2>nul
-node -e "var fs=require('fs');try{var t=fs.readFileSync(process.argv[1],'utf8');var i=t.indexOf('{');var j=JSON.parse(t.slice(i));var n=0;if(j&&typeof j.count==='number'){n=j.count}else if(j&&j.list){n=j.list.length}process.stdout.write(String(n))}catch(e){process.stdout.write('-1')}" "%OR_TMP%\freeclaude_prov.json" > "%OR_TMP%\freeclaude_prov.txt" 2>nul
+node -e "var fs=require('fs');try{var t=fs.readFileSync(process.argv[1],'utf8');var i=t.indexOf('{');var j=JSON.parse(t.slice(i));var l=(j&&(j.connections||j.list))||[];var n=typeof j.count==='number'?j.count:l.length;process.stdout.write(String(n))}catch(e){process.stdout.write('-1')}" "%OR_TMP%\freeclaude_prov.json" > "%OR_TMP%\freeclaude_prov.txt" 2>nul
 set /p OR_PROV=<"%OR_TMP%\freeclaude_prov.txt"
 if "%OR_PROV%"=="0" goto :provider_missing
 exit /b 0

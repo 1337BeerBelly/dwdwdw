@@ -66,7 +66,7 @@ echo     Сервер:       запущен на порту %OR_PORT%
 echo     Дашборд:      http://localhost:%OR_PORT%
 echo     API:          http://localhost:%OR_PORT%/v1
 call omniroute providers status --json > "%OR_TMP%\freeclaude_prov.json" 2>nul
-node -e "var fs=require('fs');try{var t=fs.readFileSync(process.argv[1],'utf8');var i=t.indexOf('{');var j=JSON.parse(t.slice(i));var l=(j&&j.list)||[];fs.writeFileSync(process.argv[2],String(typeof j.count==='number'?j.count:l.length));var names=l.map(function(x){return x.provider||x.id||'?'});fs.writeFileSync(process.argv[3],names.length?names.join(', '):'нет')}catch(e){fs.writeFileSync(process.argv[2],'-1');fs.writeFileSync(process.argv[3],'неизвестно')}" "%OR_TMP%\freeclaude_prov.json" "%OR_TMP%\freeclaude_prov_n.txt" "%OR_TMP%\freeclaude_prov_names.txt"
+node -e "var fs=require('fs');try{var t=fs.readFileSync(process.argv[1],'utf8');var i=t.indexOf('{');var j=JSON.parse(t.slice(i));var l=(j&&(j.connections||j.list))||[];fs.writeFileSync(process.argv[2],String(typeof j.count==='number'?j.count:l.length));var names=l.map(function(x){return x.provider||x.id||'?'});fs.writeFileSync(process.argv[3],names.length?names.join(', '):'нет')}catch(e){fs.writeFileSync(process.argv[2],'-1');fs.writeFileSync(process.argv[3],'неизвестно')}" "%OR_TMP%\freeclaude_prov.json" "%OR_TMP%\freeclaude_prov_n.txt" "%OR_TMP%\freeclaude_prov_names.txt"
 set "OR_PN=?"
 set /p OR_PN=<"%OR_TMP%\freeclaude_prov_n.txt"
 set "OR_PNAMES=неизвестно"

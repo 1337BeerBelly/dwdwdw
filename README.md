@@ -40,6 +40,8 @@ freeclaude
 | `freeclaude-update.bat` | Обновляет OmniRoute и Claude Code, перезапускает шлюз |
 | `arena-pack.bat` | Упаковывает проект в zip для отправки в чат Arena (`.sh` — для macOS/Linux) |
 | `arena-unpack.bat` | Раскладывает полученные правки обратно в проект, с бэкапом (`.sh` — для macOS/Linux) |
+| `kiro-check.bat` | Диагностика входа в Kiro: домены, шлюз, прокси, часы (`kiro-check --json` — для отправки в чат) |
+| `docs/KIRO_TROUBLESHOOTING.md` | Портал авторизации Kiro не открывается: что делать и как подключить Kiro без портала |
 | `docs/ARENA_BRIDGE.md` | Как работать над вашими файлами вместе с Arena: пошагово, форматы, безопасность |
 | `docs/TROUBLESHOOTING.md` | Разбор типовых ошибок freeclaude |
 
@@ -128,6 +130,8 @@ omniroute serve --daemon --no-open
 В дашборде: **Providers** → **Kiro AI** → **Add connection** → **Builder ID**. Откроется страница авторизации AWS Builder ID — вход по Google/GitHub или по e-mail, затем подтверждение доступа.
 
 Kiro AI отдаёт модели Claude (Sonnet / Haiku / Opus) в рамках бесплатного тарифа провайдера (порядка 50 кредитов в месяц на аккаунт). Язык интерфейса дашборда переключается в правом верхнем углу.
+
+Вход устроен как device-code: окно авторизации показывает код и ссылку, а шлюз сам ждёт подтверждения. Поэтому ссылку можно открыть **на телефоне** и ввести код там — это выручает, когда портал не открывается на компьютере. Если совсем не выходит, Kiro подключается и без портала: Auto-Import из Kiro CLI/IDE, Import Token или API Key. Диагностика — `kiro-check`, подробности — [docs/KIRO_TROUBLESHOOTING.md](docs/KIRO_TROUBLESHOOTING.md).
 
 ### 5. Ключ доступа (необязательно)
 

@@ -51,6 +51,8 @@ if exist "%OR_SRC%\START_HERE.txt" copy /y "%OR_SRC%\START_HERE.txt" "%OR_DST%\"
 if exist "%OR_SRC%\docs\TROUBLESHOOTING.md" mkdir "%OR_DST%\docs" >nul 2>&1
 if exist "%OR_SRC%\docs\TROUBLESHOOTING.md" copy /y "%OR_SRC%\docs\TROUBLESHOOTING.md" "%OR_DST%\docs\" >nul
 if exist "%OR_SRC%\docs\ARENA_BRIDGE.md" copy /y "%OR_SRC%\docs\ARENA_BRIDGE.md" "%OR_DST%\docs\" >nul
+if exist "%OR_SRC%\kiro-check.bat" copy /y "%OR_SRC%\kiro-check.bat" "%OR_DST%\" >nul
+if exist "%OR_SRC%\docs\KIRO_TROUBLESHOOTING.md" copy /y "%OR_SRC%\docs\KIRO_TROUBLESHOOTING.md" "%OR_DST%\docs\" >nul
 if exist "%OR_SRC%\arena-pack.bat" copy /y "%OR_SRC%\arena-pack.bat" "%OR_DST%\" >nul
 if exist "%OR_SRC%\arena-unpack.bat" copy /y "%OR_SRC%\arena-unpack.bat" "%OR_DST%\" >nul
 if exist "%OR_SRC%\tools\arena-pack.mjs" xcopy /y /i /q "%OR_SRC%\tools\*.mjs" "%OR_DST%\tools\" >nul
