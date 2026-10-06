@@ -157,7 +157,10 @@ async function probeLocal(port, timeoutMs) {
 function omnirouteConnectionsList(bin, args) {
   let res;
   try {
-    res = spawnSync(bin, args, {
+    // Одна строка команды вместо массива: Node предупреждает (DEP0190) о
+    // передаче аргументов вместе с shell:true. Аргументы здесь — только
+    // литералы ("providers", "list", "--json"), подстановки извне нет.
+    res = spawnSync(`${bin} ${args.join(" ")}`, {
       encoding: "utf8",
       shell: true,
       timeout: 60000,
@@ -328,6 +331,7 @@ function clientTarget(port) {
   }
   const files = [];
   const foreign = [];
+  const notes = [];
   const candidates = [
     path.join(os.homedir(), ".claude", "settings.json"),
     path.join(os.homedir(), ".claude", "settings.local.json"),
@@ -344,6 +348,37 @@ function clientTarget(port) {
     }
   };
   checkUrl("ANTHROPIC_BASE_URL (переменная)", process.env.ANTHROPIC_BASE_URL);
+
+  // Модели: Claude Code просит имя без префикса, а шлюз требует префикс, когда
+  // такую модель отдают несколько маршрутов (400 Ambiguous model).
+  const MODEL_VARS = [
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_SMALL_FAST_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+  ];
+  const checkModelVar = (where, key, value) => {
+    if (!value || typeof value !== "string") return;
+    const model = value.trim();
+    if (!model.includes("/")) {
+      notes.push({
+        kind: "no-prefix",
+        where: `${key} (${where})`,
+        model,
+        text: `${key} без префикса провайдера («${model}») — при нескольких подключениях шлюз ответит 400 Ambiguous model. Задайте kr/${model}`,
+      });
+      return;
+    }
+    if (/^kr\//.test(model) && /sonnet-5$/.test(model)) {
+      notes.push({
+        kind: "plan-gated",
+        where: `${key} (${where})`,
+        model,
+        text: `${key} = ${model}: Kiro отдаёт эту модель не всем аккаунтам — если приходит 400 от Kiro, замените на kr/claude-sonnet-4.5`,
+      });
+    }
+  };
+  for (const key of MODEL_VARS) checkModelVar("переменная", key, process.env[key]);
   for (const file of candidates) {
     if (!fs.existsSync(file)) continue;
     let data = null;
@@ -360,8 +395,9 @@ function clientTarget(port) {
     }
     files.push({ path: file, env: shown, count: Object.keys(envBlock).length });
     checkUrl(`${file} → env.ANTHROPIC_BASE_URL`, envBlock.ANTHROPIC_BASE_URL);
+    for (const key of MODEL_VARS) checkModelVar(path.basename(path.dirname(file)), key, envBlock[key]);
   }
-  return { env, files, foreign };
+  return { env, files, foreign, notes };
 }
 
 /** Один короткий запрос через локальный шлюз: видно, кто отвечает и чем. */
@@ -541,6 +577,9 @@ async function main({ flags }) {
     console.log("        Запросы уходят НЕ в ваш шлюз — отсюда ошибки 429/401 и «Budget has been exceeded».");
     console.log("        Уберите ANTHROPIC_BASE_URL из переменных среды и из .claude\\settings.json, затем запустите freeclaude заново.");
   }
+  for (const note of client.notes) {
+    line("!", "Модель", note.text);
+  }
   const otherVars = envKeys.filter((k) => k !== "ANTHROPIC_BASE_URL");
   if (otherVars.length) {
     line("+", "Переменные ANTHROPIC_*", otherVars.map((k) => `${k}=${client.env[k]}`).join(", "));
@@ -654,7 +693,25 @@ async function main({ flags }) {
   console.log("  ------------------------------------------------------------");
   console.log("  Диагноз:");
 
-  if (failed.length === 0) {
+  // Если всё в порядке, не пугаем советами про браузер: раньше этот блок печатался
+  // всегда, когда домены доступны, даже когда вход уже завершён и дело не в нём.
+  const kiroCount = results.local.connections.ok ? results.local.connections.kiro : -1;
+  const allGood =
+    failed.length === 0 && results.local.omniroute.ok && !clockOff && kiroCount > 0;
+
+  if (allGood) {
+    console.log("    • Сеть, шлюз и подключения Kiro в порядке — вход тут ни при чём.");
+    if (client.foreign.length) {
+      console.log("    • Но запросы идут мимо шлюза: в клиенте задан чужой ANTHROPIC_BASE_URL (см. выше).");
+    } else if (client.notes.length) {
+      console.log("    • Обратите внимание на замечания по модели (помечены [!] выше) — это частая причина 400 Ambiguous model.");
+    } else {
+      console.log("    • Если Claude Code всё ещё ругается — пришлите: kiro-check --test-call --provider kiro");
+    }
+    if (kiroCount > 1) {
+      console.log(`    • Подключений Kiro несколько (${kiroCount}): проверьте каждое «Тестовым соединением» в Dashboard → Providers и удалите нерабочее — лишние маршруты дают неоднозначность модели.`);
+    }
+  } else if (failed.length === 0) {
     console.log("    Все домены доступны, сеть не при чём.");
     console.log("    Значит дело в браузере или в самом окне авторизации:");
     console.log("      • откройте ссылку из окна авторизации в режиме инкогнито;");

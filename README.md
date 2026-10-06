@@ -171,8 +171,17 @@ freeclaude --model kr/claude-sonnet-4.5
 или навсегда — в `%USERPROFILE%\.claude\settings.json`:
 
 ```json
-{ "env": { "ANTHROPIC_MODEL": "kr/claude-sonnet-4.5" } }
+{
+  "env": {
+    "ANTHROPIC_MODEL": "kr/claude-sonnet-4.5",
+    "ANTHROPIC_SMALL_FAST_MODEL": "kr/claude-haiku-4.5"
+  }
+}
 ```
+
+Префикс `kr/` нужен **обеим** переменным: без него фоновая модель снова упрётся в
+`400 Ambiguous model`, когда подключений несколько. Если в списке несколько подключений
+Kiro — оставьте одно рабочее («Тестовое соединение» на карточке Kiro).
 
 Разбор — §17 в [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 

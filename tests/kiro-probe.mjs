@@ -218,5 +218,48 @@ console.log("\n8) kiro-check --test-call: 400 Ambiguous model");
   server.close();
 }
 
+console.log("\n9) kiro-check: замечания к моделям в settings.json");
+{
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawn } = await import("node:child_process");
+
+  const home = mkdtempSync(join(tmpdir(), "kiro-home-"));
+  mkdirSync(join(home, ".claude"), { recursive: true });
+  writeFileSync(
+    join(home, ".claude", "settings.json"),
+    JSON.stringify({
+      env: {
+        ANTHROPIC_AUTH_TOKEN: "sk-testtesttesttesttest",
+        ANTHROPIC_MODEL: "kr/claude-sonnet-5",
+        ANTHROPIC_SMALL_FAST_MODEL: "claude-haiku-4.5",
+      },
+    })
+  );
+
+  const run = (args, env) =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, ["tools/kiro-check.mjs", ...args], {
+        cwd: new URL("..", import.meta.url).pathname,
+        env,
+      });
+      let stdout = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.on("close", () => resolve({ stdout }));
+    });
+
+  const out = (
+    await run(["--no-pause", "--timeout", "2000"], { ...process.env, HOME: home, USERPROFILE: home })
+  ).stdout;
+
+  ok("предупреждает о модели без префикса", /SMALL_FAST_MODEL без префикса/.test(out));
+  ok("подсказывает kr/ для haiku", /kr\/claude-haiku-4\.5/.test(out));
+  ok("предупреждает о plan-gated sonnet-5", /не всем аккаунтам/.test(out));
+  ok("маскирует токен", /sk-tes…\(\d+ симв\.\)/.test(out));
+
+  rmSync(home, { recursive: true, force: true });
+}
+
 console.log(`\nПроверок: ${total}, провалено: ${failed}`);
 process.exit(failed ? 1 : 0);
