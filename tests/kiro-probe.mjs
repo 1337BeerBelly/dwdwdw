@@ -184,5 +184,39 @@ console.log("\n7) kiro-check --test-call: ответ шлюза с исчерп�
   server.close();
 }
 
+console.log("\n8) kiro-check --test-call: 400 Ambiguous model");
+{
+  const ambiguousBody = {
+    error: {
+      message:
+        "Ambiguous model 'claude-sonnet-4-6'. Use provider/model prefix (ex: pu/claude-sonnet-4-6 or cc/claude-sonnet-4-6).",
+      type: "invalid_request_error",
+      code: "400",
+    },
+  };
+  const { server, port } = await startMock({
+    "/v1/messages": () => ({ status: 400, json: ambiguousBody }),
+  });
+
+  const { spawn } = await import("node:child_process");
+  const run = (args) =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, ["tools/kiro-check.mjs", ...args], {
+        cwd: new URL("..", import.meta.url).pathname,
+      });
+      let stdout = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.on("close", () => resolve({ stdout }));
+    });
+
+  const human = await run(["--port", String(port), "--test-call", "--no-pause", "--timeout", "3000"]);
+  ok("объясняет, что модель без префикса", /без префикса/.test(human.stdout));
+  ok("повторяет подсказку шлюза", /pu\/claude-sonnet-4-6 or cc\/claude-sonnet-4-6/.test(human.stdout));
+  ok("даёт имя модели Kiro", /kr\/claude-sonnet-4\.5/.test(human.stdout));
+  ok("даёт команду и settings.json", /freeclaude --model kr\/claude-sonnet-4\.5/.test(human.stdout) && /ANTHROPIC_MODEL/.test(human.stdout));
+
+  server.close();
+}
+
 console.log(`\nПроверок: ${total}, провалено: ${failed}`);
 process.exit(failed ? 1 : 0);

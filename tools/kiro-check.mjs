@@ -54,6 +54,8 @@ const HELP = `
 
   --test-call отправляет в ваш локальный шлюз один короткий запрос (model auto,
   16 токенов) и печатает статус, тело ответа и служебные заголовки OmniRoute.
+  Он же разбирает частые ответы: «Ambiguous model» (нужен префикс провайдера)
+  и «Budget has been exceeded» (бюджет чужого шлюза).
 `;
 
 /** Домены и эндпоинты, задействованные во входе в Kiro. */
@@ -568,7 +570,18 @@ async function main({ flags }) {
       }
       const body = tc.body.replace(/\s+/g, " ").trim();
       console.log(`        ответ: ${body.slice(0, 300)}${body.length > 300 ? "…" : ""}`);
-      if (/budget/i.test(tc.body) && /exceed/i.test(tc.body)) {
+      if (/ambiguous model/i.test(tc.body)) {
+        line("!", "Вердикт", "Claude Code попросил модель без префикса провайдера, а её отдают сразу несколько маршрутов");
+        const hint = (tc.body.match(/\(ex: ([^)]+)\)/) || [])[1];
+        if (hint) console.log(`        OmniRoute предложил выбрать: ${hint}`);
+        // Идентификаторы взяты из реестра OmniRoute (open-sse/config/providers/registry/kiro):
+        // у Kiro своя линейка имён, «claude-sonnet-4-6» среди них нет.
+        console.log("        У Kiro модели называются иначе: claude-sonnet-4.5, claude-sonnet-5, claude-haiku-4.5.");
+        console.log("        Разовая попытка:  freeclaude --model kr/claude-sonnet-4.5");
+        console.log('        Навсегда: добавьте в %USERPROFILE%\\.claude\\settings.json');
+        console.log('          { "env": { "ANTHROPIC_MODEL": "kr/claude-sonnet-4.5" } }');
+        console.log("        Посмотреть, что подключено: omniroute providers list");
+      } else if (/budget/i.test(tc.body) && /exceed/i.test(tc.body)) {
         line("!", "Вердикт", "бюджет исчерпан на стороне провайдера, которому шлюз передал запрос");
         console.log("        Проверьте, какие провайдеры подключены (omniroute providers list) и на кого ушёл запрос (Dashboard → Логи).");
         console.log("        Обходной путь: модель конкретного провайдера или заголовок x-omniroute-provider.");

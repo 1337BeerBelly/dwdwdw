@@ -57,6 +57,12 @@ freeclaude - Claude Code через OmniRoute
     -> вставить ключ -> "Проверить и сохранить API-ключ".
     Регион AWS - как у ключа (обычно us-east-1).
 
+    Ошибка 400 "Ambiguous model"? Claude Code просит модель без префикса,
+    а у Kiro имена другие. Запускайте так:
+      freeclaude --model kr/claude-sonnet-4.5
+    (навсегда: в %USERPROFILE%\.claude\settings.json -> 
+     "env": { "ANTHROPIC_MODEL": "kr/claude-sonnet-4.5" })
+
     Ошибка 429 "Budget has been exceeded" (числа вроде 100000000)?
     Это текст стороннего шлюза (LiteLLM), а не Kiro. Проверьте:
       kiro-check                 - куда смотрит Claude Code (ANTHROPIC_BASE_URL,

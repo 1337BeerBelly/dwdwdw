@@ -9,7 +9,7 @@ import readline from "node:readline";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
-export const TOOL_VERSION = "1.3";
+export const TOOL_VERSION = "1.4";
 
 export const SKIP_DIRS = new Set([
   ".git", ".svn", ".hg", ".bzr", "__MACOSX",

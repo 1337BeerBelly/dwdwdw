@@ -157,13 +157,34 @@ omniroute serve --daemon --no-open
 
 ---
 
+### 3.2. Какая модель запрашивается
+
+Claude Code по умолчанию просит модель без префикса (`claude-sonnet-4-6`), а у Kiro имена
+другие — `claude-sonnet-4.5`, `claude-sonnet-5`, `claude-haiku-4.5`. Пока в шлюзе подключён
+один провайдер, ошибок обычно нет; если подключение не одно, OmniRoute может ответить
+`400 Ambiguous model`. Тогда модель называют явно, с префиксом Kiro:
+
+```
+freeclaude --model kr/claude-sonnet-4.5
+```
+
+или навсегда — в `%USERPROFILE%\.claude\settings.json`:
+
+```json
+{ "env": { "ANTHROPIC_MODEL": "kr/claude-sonnet-4.5" } }
+```
+
+Разбор — §17 в [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
+---
+
 ### 4. Провайдер Kiro AI
 
 В дашборде: **Providers** → **Kiro AI** → **Add connection** → **Builder ID**. Откроется страница авторизации AWS Builder ID — вход по Google/GitHub или по e-mail, затем подтверждение доступа.
 
 Kiro AI отдаёт модели Claude (Sonnet / Haiku / Opus) в рамках бесплатного тарифа провайдера (порядка 50 кредитов в месяц на аккаунт). Язык интерфейса дашборда переключается в правом верхнем углу.
 
-Вход устроен как device-code: окно авторизации показывает код и ссылку, а шлюз сам ждёт подтверждения. Поэтому ссылку можно открыть **на телефоне** и ввести код там — это выручает, когда портал не открывается на компьютере. Если совсем не выходит, Kiro подключается и без портала: Auto-Import из Kiro CLI/IDE, Import Token или API Key (ключ вставляется в **Providers → Kiro → «API ключ» → «Проверить и сохранить API-ключ»**; на дашборде может быть список «Счета» — добавление учётной записи там же). Диагностика — `kiro-check`, при ошибке «Connection Failed / invalid_token_response» — `kiro-check --probe-kiro`; при 429 «Budget has been exceeded» — `kiro-check --test-call` (§16 в [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)); подробности — [docs/KIRO_TROUBLESHOOTING.md](docs/KIRO_TROUBLESHOOTING.md).
+Вход устроен как device-code: окно авторизации показывает код и ссылку, а шлюз сам ждёт подтверждения. Поэтому ссылку можно открыть **на телефоне** и ввести код там — это выручает, когда портал не открывается на компьютере. Если совсем не выходит, Kiro подключается и без портала: Auto-Import из Kiro CLI/IDE, Import Token или API Key (ключ вставляется в **Providers → Kiro → «API ключ» → «Проверить и сохранить API-ключ»**; на дашборде может быть список «Счета» — добавление учётной записи там же). Диагностика — `kiro-check`, при ошибке «Connection Failed / invalid_token_response» — `kiro-check --probe-kiro`; при 429 «Budget has been exceeded» или 400 «Ambiguous model» — `kiro-check --test-call` (§16 и §17 в [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)); подробности — [docs/KIRO_TROUBLESHOOTING.md](docs/KIRO_TROUBLESHOOTING.md).
 
 ### 5. Ключ доступа (необязательно)
 
