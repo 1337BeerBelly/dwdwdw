@@ -65,6 +65,12 @@ freeclaude - Claude Code через OmniRoute
               "ANTHROPIC_SMALL_FAST_MODEL": "kr/claude-haiku-4.5" })
      Префикс kr/ нужен ОБЕИМ переменным модели.
 
+    Ошибка 403 "The bearer ... is invalid" (и "Please run /login")?
+    Это Kiro не принял подключение. Проверьте так:
+      kiro-check --test-call --provider kiro --model kr/claude-sonnet-4.5
+    Помогает: пересоздать API-ключ, перейти на claude-sonnet-4.5,
+    либо подключить Kiro через Builder ID / Auto-Import / Import Token.
+
     Ошибка 429 "Budget has been exceeded" (числа вроде 100000000)?
     Это текст стороннего шлюза (LiteLLM), а не Kiro. Проверьте:
       kiro-check                 - куда смотрит Claude Code (ANTHROPIC_BASE_URL,

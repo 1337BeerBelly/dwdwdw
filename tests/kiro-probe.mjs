@@ -261,5 +261,42 @@ console.log("\n9) kiro-check: замечания к моделям в settings.j
   rmSync(home, { recursive: true, force: true });
 }
 
+console.log("\n10) kiro-check --test-call: Kiro отклонил ключ (403 bearer invalid)");
+{
+  const rejected = {
+    error: {
+      message: "[403]: The bearer abc123 included in the request is invalid.",
+      type: "invalid_request_error",
+      code: "403",
+    },
+  };
+  const { server, port } = await startMock({
+    "/v1/messages": () => ({ status: 403, json: rejected }),
+  });
+
+  const { spawn } = await import("node:child_process");
+  const run = (args) =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, ["tools/kiro-check.mjs", ...args], {
+        cwd: new URL("..", import.meta.url).pathname,
+      });
+      let stdout = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.on("close", () => resolve({ stdout }));
+    });
+
+  const human = await run([
+    "--port", String(port), "--test-call", "--provider", "kiro",
+    "--model", "kr/claude-sonnet-5", "--no-pause", "--timeout", "3000",
+  ]);
+  ok("распознаёт 403 от Kiro", /Kiro отклонил вашу? клю?ч\/токен|Kiro отклонил/.test(human.stdout));
+  ok("объясняет, что это AWS CodeWhisperer", /CodeWhisperer/.test(human.stdout));
+  ok("советует модель 4.5", /kr\/claude-sonnet-4\.5/.test(human.stdout));
+  ok("советует OAuth-пути", /Builder ID/.test(human.stdout) && /Import Token/.test(human.stdout));
+  ok("показывает выбранную модель в заголовке", /модель kr\/claude-sonnet-5/.test(human.stdout));
+
+  server.close();
+}
+
 console.log(`\nПроверок: ${total}, провалено: ${failed}`);
 process.exit(failed ? 1 : 0);

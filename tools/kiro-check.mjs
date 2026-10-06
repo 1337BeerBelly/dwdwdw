@@ -39,6 +39,7 @@ const HELP = `
     kiro-check --test-call             послать пробный запрос через локальный шлюз
                                         и показать ответ (какой провайдер, какая ошибка)
     kiro-check --test-call --provider kiro    то же, но строго через Kiro
+    kiro-check --test-call --model kr/claude-sonnet-4.5    конкретная модель
     kiro-check --test-call --api-key <ключ>   если на шлюзе задан REQUIRE_API_KEY
     kiro-check --port 20128 --timeout 8000
     kiro-check --version
@@ -401,7 +402,7 @@ function clientTarget(port) {
 }
 
 /** Один короткий запрос через локальный шлюз: видно, кто отвечает и чем. */
-async function gatewayTestCall(port, timeoutMs, apiKey, providerId) {
+async function gatewayTestCall(port, timeoutMs, apiKey, providerId, modelId) {
   const url = `http://127.0.0.1:${port}/v1/messages`;
   const headers = {
     "content-type": "application/json",
@@ -413,7 +414,7 @@ async function gatewayTestCall(port, timeoutMs, apiKey, providerId) {
   // когда обычная маршрутизация (auto) уходит на исчерпанного провайдера.
   if (providerId) headers["x-omniroute-provider"] = String(providerId);
   const body = {
-    model: "auto",
+    model: modelId || "auto",
     max_tokens: 16,
     messages: [{ role: "user", content: "Ответь одним словом: ping" }],
   };
@@ -436,6 +437,7 @@ async function gatewayTestCall(port, timeoutMs, apiKey, providerId) {
       body: text.slice(0, 1200),
       url,
       provider: providerId || null,
+      model: modelId || "auto",
     };
   } catch (err) {
     return {
@@ -485,7 +487,8 @@ async function main({ flags }) {
       port,
       timeoutMs,
       flagValue(flags, ["api-key"], null),
-      flagValue(flags, ["provider"], null)
+      flagValue(flags, ["provider"], null),
+      flagValue(flags, ["model"], null)
     );
   }
   results.env.proxy = proxyEnv();
@@ -597,7 +600,7 @@ async function main({ flags }) {
     const tc = results.testCall;
     console.log("");
     console.log(
-      `  Пробный запрос через шлюз${results.testCall.provider ? ` (провайдер ${results.testCall.provider})` : " (model auto)"}, 16 токенов:`
+      `  Пробный запрос через шлюз (модель ${results.testCall.model}${results.testCall.provider ? `, провайдер ${results.testCall.provider}` : ""}, 16 токенов):`
     );
     if (tc.error) {
       line("x", tc.url, `соединения нет: ${tc.error} — шлюз не запущен?`);
@@ -609,7 +612,23 @@ async function main({ flags }) {
       }
       const body = tc.body.replace(/\s+/g, " ").trim();
       console.log(`        ответ: ${body.slice(0, 300)}${body.length > 300 ? "…" : ""}`);
-      if (/ambiguous model/i.test(tc.body)) {
+      const kiroRejectedCredentials =
+        /AccessDeniedException|bearer token[^"]*invalid|The bearer .*invalid/i.test(tc.body) &&
+        tc.status === 403;
+      if (kiroRejectedCredentials) {
+        line("!", "Вердикт", "Kiro отклонил ваш ключ/токен: 403 AccessDeniedException («The bearer token … is invalid»).");
+        console.log("        Это ответ AWS CodeWhisperer — то есть запрос дошёл до Kiro, но подключение больше не годится.");
+        console.log("");
+        console.log("        Порядок действий:");
+        console.log("        1) проверьте ключ свежим: создайте новый API-ключ Kiro и вставьте заново");
+        console.log("           (Dashboard → Providers → Kiro → «API ключ» → «Проверить и сохранить»);");
+        console.log("        2) попробуйте старшую модель — с API-ключом новая линейка Kiro часто отвечает 403:");
+        console.log("             kiro-check --test-call --provider kiro --model kr/claude-sonnet-4.5");
+        console.log("        3) если 403 остаётся — подключите Kiro через OAuth вместо ключа:");
+        console.log("           Builder ID (вход по коду), Auto-Import (если Kiro CLI/IDE уже настроен),");
+        console.log("           Import Token (refresh-токен, начинается с aorAAAAAG…) — в Dashboard → Providers → Kiro.");
+        console.log("        Подробно: docs/KIRO_TROUBLESHOOTING.md, раздел 4.2.");
+      } else if (/ambiguous model/i.test(tc.body)) {
         line("!", "Вердикт", "Claude Code попросил модель без префикса провайдера, а её отдают сразу несколько маршрутов");
         const hint = (tc.body.match(/\(ex: ([^)]+)\)/) || [])[1];
         if (hint) console.log(`        OmniRoute предложил выбрать: ${hint}`);

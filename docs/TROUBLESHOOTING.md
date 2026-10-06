@@ -362,7 +362,27 @@ Dashboard → Providers, чтобы не запрашивались лишние
 
 ---
 
-## 18. Как всё удалить
+## 18. 403 «The bearer [REDACTED] included in the request is invalid»
+
+Коротко: **запрос дошёл до Kiro, но Kiro не принял ваше подключение.** Полный разбор и
+порядок действий — [docs/KIRO_TROUBLESHOOTING.md](KIRO_TROUBLESHOOTING.md), раздел 4.2.
+
+Быстрая проверка, что дело именно в подключении:
+
+```
+kiro-check --test-call --provider kiro --model kr/claude-sonnet-4.5
+```
+
+Инструмент покажет ответ Kiro целиком и сам объяснит 403. Если хочется одним сообщением
+в чат — `kiro-check --json > kiro-check.json`.
+
+Что помогает в порядке частоты: пересоздать API-ключ Kiro; перейти на модель
+`kr/claude-sonnet-4.5`; подключить Kiro через Builder ID / Auto-Import / Import Token
+вместо ключа; удалить лишние подключения Kiro.
+
+---
+
+## 19. Как всё удалить
 
 ```
 freeclaude-stop --autostart-off     остановить шлюз и снять автозапуск
