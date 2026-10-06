@@ -380,6 +380,11 @@ kiro-check --test-call --provider kiro --model kr/claude-sonnet-4.5
 `kr/claude-sonnet-4.5`; подключить Kiro через Builder ID / Auto-Import / Import Token
 вместо ключа; удалить лишние подключения Kiro.
 
+Если ошибка появляется **уже при сохранении ключа** в дашборде («Invalid Kiro API key or
+AWS region») — шлюз проверяет ключ тем же живым запросом, поэтому результат тот же. Проверить
+ключ заранее: `kiro-check --check-kiro-key "ksk_..."` (оба региона); порядок действий —
+[docs/KIRO_TROUBLESHOOTING.md](KIRO_TROUBLESHOOTING.md), раздел 5.
+
 ---
 
 ## 19. Что писать в `ANTHROPIC_AUTH_TOKEN`

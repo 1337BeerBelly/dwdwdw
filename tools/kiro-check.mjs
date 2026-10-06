@@ -11,12 +11,18 @@
  * v1.7: разбирает ANTHROPIC_AUTH_TOKEN у клиента — это пропуск в локальный шлюз,
  * а не токен Kiro/Anthropic. Инструмент говорит, что именно туда положено и что
  * с этим делать (частая путаница при подключении Kiro по OAuth).
+ *
+ * v1.8: --check-kiro-key — проверка API-ключа Kiro напрямую, ровно как это делает шлюз
+ * при сохранении (ListAvailableProfiles, при необходимости — пробный запрос модели).
+ * Прогоняет ключ по обоим регионам профиля (us-east-1 и eu-central-1) и объясняет
+ * вердикт, включая случай «Invalid Kiro API key or AWS region» в дашборде.
  */
 
 import dns from "node:dns";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
 import { runKiroSocialProbe, formatResponse, probeRecommendations } from "./lib/kiro-probe.mjs";
@@ -45,6 +51,8 @@ const HELP = `
     kiro-check --test-call --provider kiro    то же, но строго через Kiro
     kiro-check --test-call --model kr/claude-sonnet-4.5    конкретная модель
     kiro-check --test-call --api-key <ключ>   если на шлюзе задан REQUIRE_API_KEY
+    kiro-check --check-kiro-key "<ключ>"      проверить API-ключ Kiro до похода в дашборд
+    kiro-check --check-kiro-key "<ключ>" --region eu-central-1   только один регион
     kiro-check --port 20128 --timeout 8000
     kiro-check --version
     kiro-check --help
@@ -61,6 +69,14 @@ const HELP = `
   а НЕ токен Kiro и не токен Anthropic. Инструмент покажет, что там лежит
   (ключ OmniRoute sk-…, служебное значение, токен Kiro/AWS) и что с этим делать.
   Для подключения Kiro по OAuth (Учётная запись OAuth) заполнять его не нужно.
+
+  Проверка ключа (--check-kiro-key) повторяет то, что делает шлюз при сохранении:
+  ListAvailableProfiles, а при необходимости — пробный запрос модели. Сразу видно,
+  принят ли ключ и в каком регионе, поэтому в дашборде («Invalid Kiro API key or
+  AWS region») уже не нужно угадывать. Регионы профиля у Kiro только два:
+  us-east-1 и eu-central-1 — по умолчанию проверяются оба. Ключ печатается
+  замаскированным и никуда не сохраняется. --aws-base — служебный флаг для
+  проверки через свой прокси/макет.
 
   --test-call отправляет в ваш локальный шлюз один короткий запрос (model auto,
   16 токенов) и печатает статус, тело ответа и служебные заголовки OmniRoute.
@@ -477,6 +493,214 @@ function clientTarget(port) {
   return { env, files, auth, foreign, notes };
 }
 
+/* ---------------- проверка API-ключа Kiro (как при сохранении) ---------------- */
+
+/** Регионы, где AWS размещает профиль Q Developer (то есть где работает ключ). */
+const KIRO_KEY_REGIONS = ["us-east-1", "eu-central-1"];
+
+/** Хост CodeWhisperer/Amazon Q для региона: us-east-1 — старый, остальные — q.<регион>. */
+function kiroAwsHost(region, awsBase) {
+  if (awsBase) return String(awsBase).replace(/\/+$/, "");
+  return region === "us-east-1"
+    ? "https://codewhisperer.us-east-1.amazonaws.com"
+    : `https://q.${region}.amazonaws.com`;
+}
+
+/** Короткий текст ошибки AWS: поле message, иначе первые символы ответа. */
+function shortAwsError(text) {
+  const body = String(text || "").replace(/\s+/g, " ").trim();
+  if (!body) return "";
+  const quoted = body.match(/"message"\s*:\s*"([^"]{1,220})"/);
+  if (quoted) return quoted[1];
+  return body.slice(0, 200);
+}
+
+/** ARN профиля из ответа ListAvailableProfiles: сначала совпадающий по региону. */
+function profileArnFromListing(text, region) {
+  try {
+    const data = JSON.parse(String(text || ""));
+    const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
+    const arnOf = (p) => p?.arn || p?.profileArn || null;
+    const match =
+      profiles.find((p) => String(arnOf(p) || "").includes(`:${region}:`)) || profiles[0];
+    return arnOf(match) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Код сетевой ошибки fetch: ECONNREFUSED/ENOTFOUND/ETIMEDOUT и т.п. */
+function netErrorText(err) {
+  const cause = err?.cause;
+  const code = cause?.errors?.[0]?.code || cause?.code || err?.code;
+  return String(code || cause?.message || err?.message || err);
+}
+
+async function awsPost(host, path, headers, body, timeoutMs) {
+  try {
+    const res = await fetch(`${host}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(Math.max(timeoutMs, 15000)),
+    });
+    const text = await res.text().catch(() => "");
+    return { ok: res.ok, status: res.status, text: String(text || "").slice(0, 800) };
+  } catch (err) {
+    return { status: 0, ok: false, error: netErrorText(err) };
+  }
+}
+
+/** ListAvailableProfiles с tokentype: API_KEY — первый шаг проверки в OmniRoute. */
+function kiroListProfiles(host, key, timeoutMs) {
+  return awsPost(
+    host,
+    "/",
+    {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/x-amz-json-1.0",
+      "x-amz-target": "AmazonCodeWhispererService.ListAvailableProfiles",
+      Accept: "application/json",
+      tokentype: "API_KEY",
+    },
+    { maxResults: 10 },
+    timeoutMs
+  );
+}
+
+/** Пробный запрос модели — то, что шлюз делает, если профиль не нашёлся. */
+function kiroRuntimeProbe(host, key, timeoutMs) {
+  return awsPost(
+    host,
+    "/generateAssistantResponse",
+    {
+      Authorization: `Bearer ${key}`,
+      tokentype: "API_KEY",
+      "Content-Type": "application/x-amz-json-1.0",
+      "X-Amz-Target": "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
+      Accept: "application/vnd.amazon.eventstream",
+      "Amz-Sdk-Request": "attempt=1; max=3",
+      "Amz-Sdk-Invocation-Id": crypto.randomUUID(),
+    },
+    {
+      conversationState: {
+        chatTriggerType: "MANUAL",
+        conversationId: crypto.randomUUID(),
+        currentMessage: { userInputMessage: { content: "ping", modelId: "auto", origin: "AI_EDITOR" } },
+        history: [],
+      },
+      inferenceConfig: { maxTokens: 1 },
+    },
+    timeoutMs
+  );
+}
+
+function classifyListing(res, region) {
+  if (res.error) return { outcome: "network", detail: res.error };
+  if (res.ok) {
+    const arn = profileArnFromListing(res.text, region);
+    return arn
+      ? { outcome: "accepted", method: "ListAvailableProfiles", detail: `профиль ${arn}` }
+      : { outcome: "no-profile", detail: "ключ принят, но профилей нет" };
+  }
+  const detail = shortAwsError(res.text) || `HTTP ${res.status}`;
+  if (/API key authentication is not supported/i.test(res.text || "")) {
+    return { outcome: "unsupported", status: res.status, detail };
+  }
+  if (res.status === 401 || res.status === 403) {
+    return { outcome: "denied", status: res.status, detail };
+  }
+  return { outcome: "error", status: res.status, detail };
+}
+
+/** Проверка одного региона: листинг профилей, при необходимости — пробный запрос. */
+async function checkKiroKeyInRegion(key, region, awsBase, timeoutMs) {
+  const host = kiroAwsHost(region, awsBase);
+  const attempts = [];
+  const listing = await kiroListProfiles(host, key, timeoutMs);
+  const verdict = classifyListing(listing, region);
+  attempts.push(
+    verdict.outcome === "network"
+      ? `ListAvailableProfiles: соединения нет (${listing.error})`
+      : `ListAvailableProfiles: HTTP ${listing.status}${verdict.outcome === "accepted" ? " — профиль найден" : ""}`
+  );
+
+  let result = { ...verdict, region };
+  if (verdict.outcome === "no-profile" || verdict.outcome === "unsupported") {
+    // Ровно то же делает OmniRoute: профиль не получен — пробуем живой запрос модели.
+    const probe = await kiroRuntimeProbe(host, key, timeoutMs);
+    attempts.push(
+      probe.error ? `пробный запрос: соединения нет (${probe.error})` : `пробный запрос: HTTP ${probe.status}`
+    );
+    if (probe.error) {
+      result = { region, outcome: "network", detail: probe.error };
+    } else if (probe.ok) {
+      result = { region, outcome: "accepted", method: "generateAssistantResponse", detail: "пробный запрос модели прошёл" };
+    } else if ([400, 422, 429].includes(probe.status)) {
+      result = { region, outcome: "accepted", method: `generateAssistantResponse_${probe.status}`, detail: `HTTP ${probe.status} — шлюз считает такой ответ рабочим` };
+    } else if (probe.status === 401 || probe.status === 403) {
+      result = { region, outcome: "unsupported", status: probe.status, detail: shortAwsError(probe.text) || `HTTP ${probe.status} AccessDenied` };
+    } else {
+      result = { region, outcome: "error", status: probe.status, detail: shortAwsError(probe.text) || `HTTP ${probe.status}` };
+    }
+  }
+  return { ...result, attempts };
+}
+
+/** Проверка ключа по регионам + человеческий вердикт. Ключ нигде не печатается целиком. */
+async function kiroKeyCheck(key, regions, awsBase, timeoutMs) {
+  const clean = String(key || "").trim();
+  const out = { key: MASK(clean), prefixOk: /^ksk_/i.test(clean), regions: [], verdict: [] };
+  if (!clean) {
+    out.verdict.push("Ключ не задан. Пример: kiro-check --check-kiro-key \"ksk_...\"");
+    return out;
+  }
+  for (const region of regions) {
+    out.regions.push(await checkKiroKeyInRegion(clean, region, awsBase, timeoutMs));
+  }
+
+  const accepted = out.regions.filter((r) => r.outcome === "accepted");
+  const unsupported = out.regions.filter((r) => r.outcome === "unsupported");
+  const denied = out.regions.filter((r) => r.outcome === "denied");
+  const netErr = out.regions.filter((r) => r.outcome === "network");
+
+  if (accepted.length) {
+    const list = accepted.map((r) => r.region).join(", ");
+    out.verdict.push(
+      `Ключ принят (${list}). В Dashboard → Providers → Kiro укажите «Регион AWS» = ${accepted[0].region} и нажмите «Проверить и сохранить API-ключ».`
+    );
+    if (accepted.length < out.regions.length) {
+      out.verdict.push("В другом регионе тот же ключ не работает — ключи Kiro привязаны к региону, где выдан ключ.");
+    }
+  } else if (unsupported.length) {
+    out.verdict.push(
+      "Kiro не принимает этот ключ на вызовах, которыми пользуется шлюз — сохранить его не получится (в дашборде это и есть «Invalid Kiro API key or AWS region»)."
+    );
+    out.verdict.push(
+      "Скорее всего ключ не предназначен для CodeWhisperer-вызовов: подключите Kiro через Builder ID, Auto-Import или Import Token."
+    );
+  } else if (denied.length === out.regions.length && denied.length > 0) {
+    out.verdict.push(
+      "Ключ отклонён в обоих регионах: он неверный или отозван, скопирован не полностью либо выдан в другом регионе."
+    );
+    out.verdict.push(
+      "Пересоздайте API-ключ Kiro (он начинается с ksk_) и повторите; если не помогает — подключите Kiro способом без ключа (Builder ID / Auto-Import / Import Token)."
+    );
+  } else if (netErr.length === out.regions.length && netErr.length > 0) {
+    out.verdict.push(
+      "Сеть не пускает к codewhisperer.us-east-1.amazonaws.com / q.<регион>.amazonaws.com — проверьте прокси и антивирус."
+    );
+  } else {
+    out.verdict.push("Однозначного ответа нет — смотрите строки выше: там ответ AWS по каждому региону.");
+  }
+  if (!out.prefixOk) {
+    out.verdict.push(
+      "Ключ не начинается с ksk_ — это не похоже на API-ключ Kiro (refresh-токен aor… или AWS-ключ не подойдут)."
+    );
+  }
+  return out;
+}
+
 /** Один короткий запрос через локальный шлюз: видно, кто отвечает и чем. */
 async function gatewayTestCall(port, timeoutMs, apiKey, providerId, modelId) {
   const url = `http://127.0.0.1:${port}/v1/messages`;
@@ -565,6 +789,22 @@ async function main({ flags }) {
       flagValue(flags, ["api-key"], null),
       flagValue(flags, ["provider"], null),
       flagValue(flags, ["model"], null)
+    );
+  }
+  const keyCheckValue = flagValue(flags, ["check-kiro-key"], null);
+  if (keyCheckValue !== null) {
+    const regionArg = String(flagValue(flags, ["region"], "") || "").trim();
+    const regions = regionArg ? [regionArg] : KIRO_KEY_REGIONS;
+    for (const region of regions) {
+      if (!/^[a-z]{2}-[a-z]+-\d{1,2}$/.test(region)) {
+        throw new CliError(`Регион «${region}» не похож на AWS-регион (пример: us-east-1).`);
+      }
+    }
+    results.keyCheck = await kiroKeyCheck(
+      keyCheckValue,
+      regions,
+      String(flagValue(flags, ["aws-base"], "") || "").trim() || null,
+      timeoutMs
     );
   }
   results.env.proxy = proxyEnv();
@@ -681,6 +921,19 @@ async function main({ flags }) {
     }
     const keys = Object.keys(file.env || {});
     line("+", "settings.json", `${file.path}${keys.length ? ` → ${keys.map((k) => `${k}=${file.env[k]}`).join(", ")}` : " (настройки Claude Code не заданы)"}`);
+  }
+
+  if (results.keyCheck) {
+    const kc = results.keyCheck;
+    console.log("");
+    console.log("  Проверка API-ключа Kiro (то же, что делает шлюз при сохранении):");
+    line("+", kc.key, kc.prefixOk ? "формат ksk_ — как у API-ключа Kiro" : "внимание: ключ Kiro начинается с ksk_");
+    for (const r of kc.regions) {
+      const mark = r.outcome === "accepted" ? "+" : r.outcome === "network" || r.outcome === "error" ? "x" : "!";
+      line(mark, r.region, r.detail || r.outcome);
+      for (const attempt of r.attempts || []) console.log(`        ${attempt}`);
+    }
+    for (const v of kc.verdict) console.log(`    • ${v}`);
   }
 
   if (results.testCall) {

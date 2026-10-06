@@ -57,6 +57,14 @@ freeclaude - Claude Code через OmniRoute
     -> вставить ключ -> "Проверить и сохранить API-ключ".
     Регион AWS - как у ключа (обычно us-east-1).
 
+    Ошибка "Invalid Kiro API key or AWS region" при сохранении ключа?
+    Шлюз проверяет ключ живым запросом, и это тот же отказ. Проверьте
+    ключ заранее (оба региона: us-east-1 / eu-central-1):
+      kiro-check --check-kiro-key "ksk_..."
+    Ключи Kiro начинаются с ksk_ и привязаны к региону выдачи; если
+    инструмент пишет, что ключ не принимается, - подключите Kiro
+    через Builder ID / Auto-Import / Import Token.
+
     Ошибка 400 "Ambiguous model"? Claude Code просит модель без префикса,
     а у Kiro имена другие. Запускайте так:
       freeclaude --model kr/claude-sonnet-4.5

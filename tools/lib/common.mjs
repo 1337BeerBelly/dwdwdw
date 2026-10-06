@@ -9,7 +9,7 @@ import readline from "node:readline";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
-export const TOOL_VERSION = "1.7";
+export const TOOL_VERSION = "1.8";
 
 export const SKIP_DIRS = new Set([
   ".git", ".svn", ".hg", ".bzr", "__MACOSX",
@@ -130,7 +130,7 @@ export function parseArgs(argv) {
       const takesValue = ["path", "p", "include", "only", "exclude", "max", "max-file-mb", "out", "o",
         "into", "target", "t", "request", "zip", "z", "pack", "src", "changes", "name",
         "login-provider", "api-key", "port", "timeout", "lines", "filter", "base-url",
-        "model", "provider"].includes(name);
+        "model", "provider", "check-kiro-key", "region", "aws-base"].includes(name);
       if (inlineValue !== null) {
         flags.set(name, inlineValue);
       } else if (takesValue) {

@@ -40,7 +40,7 @@ freeclaude
 | `freeclaude-update.bat` | Обновляет OmniRoute и Claude Code, перезапускает шлюз |
 | `arena-pack.bat` | Упаковывает проект в zip для отправки в чат Arena (`.sh` — для macOS/Linux) |
 | `arena-unpack.bat` | Раскладывает полученные правки обратно в проект, с бэкапом (`.sh` — для macOS/Linux) |
-| `kiro-check.bat` | Диагностика: домены, шлюз, прокси, часы, куда смотрит Claude Code (включая разбор `ANTHROPIC_AUTH_TOKEN`); `--probe-kiro` повторяет запросы входа, `--test-call` шлёт пробный запрос через шлюз (`--provider kiro`, `--model kr/claude-sonnet-4.5`); `--json` — отчёт для чата |
+| `kiro-check.bat` | Диагностика: домены, шлюз, прокси, часы, куда смотрит Claude Code (включая разбор `ANTHROPIC_AUTH_TOKEN`); `--check-kiro-key "<ключ>"` проверяет сам API-ключ Kiro; `--probe-kiro` повторяет запросы входа, `--test-call` шлёт пробный запрос через шлюз (`--provider kiro`, `--model kr/claude-sonnet-4.5`); `--json` — отчёт для чата |
 | `docs/KIRO_TROUBLESHOOTING.md` | Портал авторизации Kiro не открывается: что делать и как подключить Kiro без портала |
 | `docs/ARENA_BRIDGE.md` | Как работать над вашими файлами вместе с Arena: пошагово, форматы, безопасность |
 | `docs/TROUBLESHOOTING.md` | Разбор типовых ошибок freeclaude |
@@ -193,7 +193,7 @@ Kiro — оставьте одно рабочее («Тестовое соеди
 
 Kiro AI отдаёт модели Claude (Sonnet / Haiku / Opus) в рамках бесплатного тарифа провайдера (порядка 50 кредитов в месяц на аккаунт). Язык интерфейса дашборда переключается в правом верхнем углу.
 
-Вход устроен как device-code: окно авторизации показывает код и ссылку, а шлюз сам ждёт подтверждения. Поэтому ссылку можно открыть **на телефоне** и ввести код там — это выручает, когда портал не открывается на компьютере. Если совсем не выходит, Kiro подключается и без портала: Auto-Import из Kiro CLI/IDE, Import Token или API Key (ключ вставляется в **Providers → Kiro → «API ключ» → «Проверить и сохранить API-ключ»**; на дашборде может быть список «Счета» — добавление учётной записи там же). Диагностика — `kiro-check`, при ошибке «Connection Failed / invalid_token_response» — `kiro-check --probe-kiro`; при 429 «Budget has been exceeded» или 400 «Ambiguous model» — `kiro-check --test-call`, а если непонятно, что писать в `ANTHROPIC_AUTH_TOKEN` — просто `kiro-check` (§16–19 в [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)); подробности — [docs/KIRO_TROUBLESHOOTING.md](docs/KIRO_TROUBLESHOOTING.md).
+Вход устроен как device-code: окно авторизации показывает код и ссылку, а шлюз сам ждёт подтверждения. Поэтому ссылку можно открыть **на телефоне** и ввести код там — это выручает, когда портал не открывается на компьютере. Если совсем не выходит, Kiro подключается и без портала: Auto-Import из Kiro CLI/IDE, Import Token или API Key (ключ вставляется в **Providers → Kiro → «API ключ» → «Проверить и сохранить API-ключ»**; на дашборде может быть список «Счета» — добавление учётной записи там же). Диагностика — `kiro-check`, при ошибке «Connection Failed / invalid_token_response» — `kiro-check --probe-kiro`; при 429 «Budget has been exceeded» или 400 «Ambiguous model» — `kiro-check --test-call`, а если непонятно, что писать в `ANTHROPIC_AUTH_TOKEN` — просто `kiro-check` (§16–19 в [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)). Сам API-ключ Kiro до сохранения в дашборде проверяет `kiro-check --check-kiro-key "<ключ>"` — он прогоняет его по обоим регионам профиля (us-east-1 и eu-central-1); подробности — [docs/KIRO_TROUBLESHOOTING.md](docs/KIRO_TROUBLESHOOTING.md).
 
 ### 5. Ключ доступа (необязательно)
 

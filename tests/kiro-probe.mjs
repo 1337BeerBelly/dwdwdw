@@ -349,5 +349,102 @@ console.log("\n11) kiro-check: ANTHROPIC_AUTH_TOKEN — пропуск в шлю
   ok("поясняет, что заполнять не обязательно", /не задан — freeclaude подставит служебное значение/.test(nothing));
 }
 
+console.log("\n12) kiro-check --check-kiro-key: что скажет AWS про ключ");
+{
+  const { spawn } = await import("node:child_process");
+
+  const runKeyCheck = (args) =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, ["tools/kiro-check.mjs", "--no-pause", "--timeout", "3000", ...args], {
+        cwd: new URL("..", import.meta.url).pathname,
+      });
+      let stdout = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.on("close", () => resolve(stdout));
+    });
+
+  const KEY = "ksk_testtesttesttesttesttesttest";
+  const listTarget = "AmazonCodeWhispererService.ListAvailableProfiles";
+  const probeTarget = "AmazonCodeWhispererStreamingService.GenerateAssistantResponse";
+
+  // Макет AWS: отвечает на ListAvailableProfiles и generateAssistantResponse по заголовку x-amz-target.
+  const startAws = (answers) => {
+    const calls = [];
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        const target = String(req.headers["x-amz-target"] || "");
+        calls.push(target);
+        const answer = answers[target] || (() => ({ status: 404, json: { message: "not_found" } }));
+        const out = answer({ body: body ? JSON.parse(body) : {}, headers: req.headers });
+        res.writeHead(out.status ?? 200, { "content-type": "application/json" });
+        res.end(out.raw ?? JSON.stringify(out.json ?? {}));
+      });
+    });
+    return new Promise((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port, calls }));
+    });
+  };
+
+  // 1. Ключ принят по листингу профилей.
+  {
+    const { server, port } = await startAws({
+      [listTarget]: () => ({ status: 200, json: { profiles: [{ arn: "arn:aws:codewhisperer:us-east-1:111:profile/test" }] } }),
+    });
+    const out = await runKeyCheck(["--check-kiro-key", KEY, "--region", "us-east-1", "--aws-base", `http://127.0.0.1:${port}`]);
+    ok("принятый ключ: вердикт «принят»", /Ключ принят/.test(out));
+    ok("принятый ключ: подсказан регион для дашборда", /Регион AWS» = us-east-1/.test(out));
+    ok("принятый ключ: видно профиль", /arn:aws:codewhisperer:us-east-1/.test(out));
+    ok("ключ не печатается целиком", !out.includes(KEY));
+    server.close();
+  }
+
+  // 2. Случай пользователя: "API key authentication is not supported" + пробный запрос 403.
+  {
+    const { server, port, calls } = await startAws({
+      [listTarget]: () => ({
+        status: 403,
+        json: { message: "AccessDeniedException: API key authentication is not supported for this operation" },
+      }),
+      [probeTarget]: () => ({ status: 403, json: { message: "The bearer token included in the request is invalid." } }),
+    });
+    const out = await runKeyCheck(["--check-kiro-key", KEY, "--aws-base", `http://127.0.0.1:${port}`]);
+    ok("случай «Invalid Kiro API key or AWS region» распознан", /Kiro не принимает этот ключ/.test(out));
+    ok("объяснено, что в дашборде будет то же сообщение", /Invalid Kiro API key or AWS region/.test(out));
+    ok("советует OAuth-способы", /Builder ID/.test(out) && /Import Token/.test(out));
+    ok("проверяет оба региона по умолчанию", /eu-central-1/.test(out) && /us-east-1/.test(out));
+    ok("пробный запрос отправлен в оба региона", calls.filter((c) => c === probeTarget).length === 2);
+    server.close();
+  }
+
+  // 3. Ключ отклонён везде (листинг 403).
+  {
+    const { server, port } = await startAws({
+      [listTarget]: () => ({ status: 403, json: { message: "The bearer token included in the request is invalid." } }),
+    });
+    const out = await runKeyCheck(["--check-kiro-key", KEY, "--aws-base", `http://127.0.0.1:${port}`]);
+    ok("отклонённый ключ: вердикт про отзыв/копирование", /отклонён в обоих регионах/.test(out));
+    ok("отклонённый ключ: совет пересоздать", /начинается с ksk_/.test(out));
+    server.close();
+  }
+
+  // 4. Сеть не пускает.
+  {
+    const out = await runKeyCheck(["--check-kiro-key", KEY, "--region", "us-east-1", "--aws-base", "http://127.0.0.1:1"]);
+    ok("сетевая ошибка распознана", /Сеть не пускает/.test(out));
+  }
+
+  // 5. Формат ключа.
+  {
+    const { server, port } = await startAws({
+      [listTarget]: () => ({ status: 200, json: { profiles: [{ arn: "arn:aws:codewhisperer:us-east-1:111:profile/test" }] } }),
+    });
+    const out = await runKeyCheck(["--check-kiro-key", "aorAAAAAG_test_refresh_token", "--region", "us-east-1", "--aws-base", `http://127.0.0.1:${port}`]);
+    ok("предупреждает про формат ksk_", /не начинается с ksk_/.test(out));
+    server.close();
+  }
+}
+
 console.log(`\nПроверок: ${total}, провалено: ${failed}`);
 process.exit(failed ? 1 : 0);
