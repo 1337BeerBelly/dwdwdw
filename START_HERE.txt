@@ -57,6 +57,14 @@ freeclaude - Claude Code через OmniRoute
     -> вставить ключ -> "Проверить и сохранить API-ключ".
     Регион AWS - как у ключа (обычно us-east-1).
 
+    Ошибка 429 "Budget has been exceeded" (числа вроде 100000000)?
+    Это текст стороннего шлюза (LiteLLM), а не Kiro. Проверьте:
+      kiro-check                 - куда смотрит Claude Code (ANTHROPIC_BASE_URL,
+                                   %USERPROFILE%\.claude\settings.json)
+      kiro-check --test-call     - что отвечает ваш шлюз
+      kiro-check --test-call --provider kiro   - строго через Kiro
+    Работать только через Kiro: freeclaude --model kiro/auto
+
     Код и ссылку из окна авторизации можно открыть на телефоне:
     шлюз сам дождётся подтверждения. Без портала Kiro подключается
     через Auto-Import, Import Token или API Key - см.

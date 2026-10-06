@@ -132,5 +132,57 @@ console.log("\n6) Проба: отключённый опрос (--poll=false)")
   server.close();
 }
 
+console.log("\n7) kiro-check --test-call: ответ шлюза с исчерпанным бюджетом");
+{
+  const budgetBody = {
+    error: {
+      message: "Budget has been exceeded! Current cost: 100188946.03, Max budget: 100000000.0",
+      type: "budget_exceeded",
+      code: "429",
+    },
+  };
+  const { server, port } = await startMock({
+    "/v1/messages": () => ({
+      status: 429,
+      json: budgetBody,
+    }),
+  });
+
+  // spawn (не spawnSync): макет живёт в этом же процессе, а синхронный запуск
+  // заблокировал бы цикл событий и сервер не успел бы ответить.
+  const { spawn } = await import("node:child_process");
+  const run = (args) =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, ["tools/kiro-check.mjs", ...args], {
+        cwd: new URL("..", import.meta.url).pathname,
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.stderr.on("data", (d) => (stderr += d));
+      child.on("close", (code) => resolve({ stdout, stderr, code }));
+    });
+
+  const jsonRun = await run(["--port", String(port), "--test-call", "--json", "--no-pause", "--timeout", "3000"]);
+  let parsed = null;
+  try {
+    parsed = JSON.parse(jsonRun.stdout.slice(jsonRun.stdout.indexOf("{")));
+  } catch (err) {
+    /* ниже отметим как провал */
+  }
+  ok("--test-call достучался до шлюза", parsed?.testCall?.status === 429, String(parsed?.testCall?.status));
+  ok("тело ошибки сохранено в отчёте", /Budget has been exceeded/.test(parsed?.testCall?.body || ""));
+  ok("отчёт помечает чужой base URL как отсутствующий", Array.isArray(parsed?.summary?.foreignBaseUrl));
+
+  const human = await run(["--port", String(port), "--test-call", "--no-pause", "--timeout", "3000"]);
+  ok(
+    "человекочитаемый вывод объясняет бюджет",
+    /бюджет исчерпан/i.test(human.stdout),
+    (human.stdout.match(/Вердикт.*/) || [""])[0].slice(0, 60)
+  );
+
+  server.close();
+}
+
 console.log(`\nПроверок: ${total}, провалено: ${failed}`);
 process.exit(failed ? 1 : 0);

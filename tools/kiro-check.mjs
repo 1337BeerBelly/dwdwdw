@@ -36,6 +36,10 @@ const HELP = `
                                         Google/GitHub и показать сырые ответы Kiro
     kiro-check --probe-kiro --login-provider github
     kiro-check --json > kiro-check.json отчёт файлом (для отправки в чат)
+    kiro-check --test-call             послать пробный запрос через локальный шлюз
+                                        и показать ответ (какой провайдер, какая ошибка)
+    kiro-check --test-call --provider kiro    то же, но строго через Kiro
+    kiro-check --test-call --api-key <ключ>   если на шлюзе задан REQUIRE_API_KEY
     kiro-check --port 20128 --timeout 8000
     kiro-check --version
     kiro-check --help
@@ -43,6 +47,13 @@ const HELP = `
   Проба (--probe-kiro) делает два настоящих запроса к Kiro: просит device-код
   и один раз его опрашивает — ровно как это делает OmniRoute. Ничего не
   подтверждает и не меняет; код живёт ~5 минут и сам истекает.
+
+  Проверка клиента (в отчёте) показывает, куда на самом деле смотрит Claude
+  Code: переменные ANTHROPIC_* и файл ~/.claude/settings.json. Если там чужой
+  адрес — запросы уходят мимо вашего шлюза (частая причина ошибок 429).
+
+  --test-call отправляет в ваш локальный шлюз один короткий запрос (model auto,
+  16 токенов) и печатает статус, тело ответа и служебные заголовки OmniRoute.
 `;
 
 /** Домены и эндпоинты, задействованные во входе в Kiro. */
@@ -282,6 +293,122 @@ function clockSkew(dateHeader, localDate) {
   return Math.round((localDate.getTime() - serverTime) / 1000);
 }
 
+const MASK = (value) => {
+  const text = String(value || "");
+  if (!text) return "";
+  if (text.length <= 8) return "***";
+  return `${text.slice(0, 6)}…(${text.length} симв.)`;
+};
+
+const ANTHROPIC_ENV_KEYS = [
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_MODEL",
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+];
+
+function isLocalUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return ["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"].includes(url.hostname);
+  } catch {
+    return null; // не URL — не наша забота
+  }
+}
+
+/** Куда на самом деле смотрит Claude Code: переменные окружения и settings.json. */
+function clientTarget(port) {
+  const env = {};
+  for (const key of ANTHROPIC_ENV_KEYS) {
+    if (process.env[key]) env[key] = MASK(process.env[key]);
+  }
+  const files = [];
+  const foreign = [];
+  const candidates = [
+    path.join(os.homedir(), ".claude", "settings.json"),
+    path.join(os.homedir(), ".claude", "settings.local.json"),
+    path.join(process.cwd(), ".claude", "settings.json"),
+    path.join(process.cwd(), ".claude", "settings.local.json"),
+  ];
+  const expected = [`http://localhost:${port}`, `http://127.0.0.1:${port}`];
+  const checkUrl = (where, value) => {
+    if (!value || typeof value !== "string") return;
+    const local = isLocalUrl(value);
+    if (local === false) foreign.push({ where, url: value });
+    else if (local === true && !expected.includes(value.replace(/\/$/, ""))) {
+      foreign.push({ where, url: `${value} (другой порт, ожидался ${port})` });
+    }
+  };
+  checkUrl("ANTHROPIC_BASE_URL (переменная)", process.env.ANTHROPIC_BASE_URL);
+  for (const file of candidates) {
+    if (!fs.existsSync(file)) continue;
+    let data = null;
+    try {
+      data = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch (err) {
+      files.push({ path: file, error: String(err?.message || err) });
+      continue;
+    }
+    const envBlock = data && typeof data.env === "object" && data.env ? data.env : {};
+    const shown = {};
+    for (const [key, value] of Object.entries(envBlock)) {
+      if (/^(ANTHROPIC|CLAUDE_CODE)/i.test(key)) shown[key] = MASK(value);
+    }
+    files.push({ path: file, env: shown, count: Object.keys(envBlock).length });
+    checkUrl(`${file} → env.ANTHROPIC_BASE_URL`, envBlock.ANTHROPIC_BASE_URL);
+  }
+  return { env, files, foreign };
+}
+
+/** Один короткий запрос через локальный шлюз: видно, кто отвечает и чем. */
+async function gatewayTestCall(port, timeoutMs, apiKey, providerId) {
+  const url = `http://127.0.0.1:${port}/v1/messages`;
+  const headers = {
+    "content-type": "application/json",
+    "anthropic-version": "2023-06-01",
+    "user-agent": `kiro-check/${TOOL_VERSION} (OmniRoute diagnostics)`,
+  };
+  if (apiKey) headers["x-api-key"] = apiKey;
+  // Пришпиливает конкретного провайдера: так видно, работает ли Kiro сам по себе,
+  // когда обычная маршрутизация (auto) уходит на исчерпанного провайдера.
+  if (providerId) headers["x-omniroute-provider"] = String(providerId);
+  const body = {
+    model: "auto",
+    max_tokens: 16,
+    messages: [{ role: "user", content: "Ответь одним словом: ping" }],
+  };
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(Math.max(timeoutMs, 15000)),
+    });
+    const text = await res.text();
+    const interesting = {};
+    for (const [key, value] of res.headers.entries()) {
+      if (/^(x-omniroute|x-request|retry-after)/i.test(key)) interesting[key] = value;
+    }
+    return {
+      ok: res.ok,
+      status: res.status,
+      headers: interesting,
+      body: text.slice(0, 1200),
+      url,
+      provider: providerId || null,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: String(err?.cause?.code || err?.code || err?.message),
+      url,
+    };
+  }
+}
+
 async function main({ flags }) {
   if (flagOn(flags, ["help", "h", "?"])) {
     console.log(HELP);
@@ -314,6 +441,15 @@ async function main({ flags }) {
 
   results.local.omniroute = await probeLocal(port, timeoutMs);
   results.local.connections = omnirouteKiroConnections();
+  results.client = clientTarget(port);
+  if (flagOn(flags, ["test-call", "test"])) {
+    results.testCall = await gatewayTestCall(
+      port,
+      timeoutMs,
+      flagValue(flags, ["api-key"], null),
+      flagValue(flags, ["provider"], null)
+    );
+  }
   results.env.proxy = proxyEnv();
   results.env.winProxy = windowsSystemProxy();
   results.env.hosts = hostsEntries(TARGETS.map((t) => t.host));
@@ -345,6 +481,7 @@ async function main({ flags }) {
     awsDown,
     gatewayUp: Boolean(results.local.omniroute.ok),
     clockOff,
+    foreignBaseUrl: results.client.foreign.map((f) => `${f.where}=${f.url}`),
   };
 
   /* ------------------------------- вывод ------------------------------- */
@@ -384,6 +521,63 @@ async function main({ flags }) {
     line("!", "Подключения Kiro", `команда omniroute ответила кодом ${conn.status} — вероятно, шлюз не запущен${conn.detail ? ` (${conn.detail})` : ""}`);
   } else {
     line("!", "Подключения Kiro", `не удалось получить: ${conn.detail || "неизвестная причина"}`);
+  }
+
+  console.log("");
+  console.log("  Клиент Claude Code (куда уходят запросы):");
+  const client = results.client;
+  const envKeys = Object.keys(client.env);
+  const baseVar = client.env.ANTHROPIC_BASE_URL;
+  if (client.foreign.length === 0) {
+    if (baseVar) {
+      line("+", "ANTHROPIC_BASE_URL", baseVar);
+    } else {
+      line("+", "ANTHROPIC_BASE_URL", `не задан — Claude Code возьмёт адрес из запуска (freeclaude → http://localhost:${port})`);
+    }
+  } else {
+    line("!", "Чужой адрес API", client.foreign.map((f) => `${f.where}: ${f.url}`).join(" · "));
+    console.log("        Запросы уходят НЕ в ваш шлюз — отсюда ошибки 429/401 и «Budget has been exceeded».");
+    console.log("        Уберите ANTHROPIC_BASE_URL из переменных среды и из .claude\\settings.json, затем запустите freeclaude заново.");
+  }
+  const otherVars = envKeys.filter((k) => k !== "ANTHROPIC_BASE_URL");
+  if (otherVars.length) {
+    line("+", "Переменные ANTHROPIC_*", otherVars.map((k) => `${k}=${client.env[k]}`).join(", "));
+  }
+  for (const file of client.files) {
+    if (file.error) {
+      line("!", "settings.json", `${file.path} — не удалось прочитать: ${file.error}`);
+      continue;
+    }
+    const keys = Object.keys(file.env || {});
+    line("+", "settings.json", `${file.path}${keys.length ? ` → ${keys.map((k) => `${k}=${file.env[k]}`).join(", ")}` : " (настройки Claude Code не заданы)"}`);
+  }
+
+  if (results.testCall) {
+    const tc = results.testCall;
+    console.log("");
+    console.log(
+      `  Пробный запрос через шлюз${results.testCall.provider ? ` (провайдер ${results.testCall.provider})` : " (model auto)"}, 16 токенов:`
+    );
+    if (tc.error) {
+      line("x", tc.url, `соединения нет: ${tc.error} — шлюз не запущен?`);
+    } else {
+      const mark = tc.ok ? "+" : "!";
+      line(mark, tc.url, `HTTP ${tc.status}`);
+      for (const [key, value] of Object.entries(tc.headers)) {
+        console.log(`        ${key}: ${value}`);
+      }
+      const body = tc.body.replace(/\s+/g, " ").trim();
+      console.log(`        ответ: ${body.slice(0, 300)}${body.length > 300 ? "…" : ""}`);
+      if (/budget/i.test(tc.body) && /exceed/i.test(tc.body)) {
+        line("!", "Вердикт", "бюджет исчерпан на стороне провайдера, которому шлюз передал запрос");
+        console.log("        Проверьте, какие провайдеры подключены (omniroute providers list) и на кого ушёл запрос (Dashboard → Логи).");
+        console.log("        Обходной путь: модель конкретного провайдера или заголовок x-omniroute-provider.");
+      } else if (tc.status === 401 || tc.status === 403) {
+        line("!", "Вердикт", "шлюз требует ключ: передайте его флагом --api-key <ключ OmniRoute>");
+      } else if (tc.ok) {
+        line("+", "Вердикт", "шлюз отвечает — связка Claude Code → OmniRoute → провайдер работает");
+      }
+    }
   }
 
   console.log("");

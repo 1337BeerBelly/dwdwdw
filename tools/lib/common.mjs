@@ -9,7 +9,7 @@ import readline from "node:readline";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
-export const TOOL_VERSION = "1.2";
+export const TOOL_VERSION = "1.3";
 
 export const SKIP_DIRS = new Set([
   ".git", ".svn", ".hg", ".bzr", "__MACOSX",
@@ -124,9 +124,13 @@ export function parseArgs(argv) {
       const eq = token.indexOf("=");
       let name = (eq > 0 ? token.slice(0, eq) : token).replace(/^-+/, "").toLowerCase();
       const inlineValue = eq > 0 ? token.slice(eq + 1) : null;
+      // Флаги, которые принимают значение. Список должен покрывать ВСЕ такие флаги
+      // инструментов: иначе `--port 20128` разберётся как port=true, а "20128"
+      // станет позиционным аргументом (проверено — именно так и было).
       const takesValue = ["path", "p", "include", "only", "exclude", "max", "max-file-mb", "out", "o",
         "into", "target", "t", "request", "zip", "z", "pack", "src", "changes", "name",
-        "login-provider"].includes(name);
+        "login-provider", "api-key", "port", "timeout", "lines", "filter", "base-url",
+        "model", "provider"].includes(name);
       if (inlineValue !== null) {
         flags.set(name, inlineValue);
       } else if (takesValue) {
