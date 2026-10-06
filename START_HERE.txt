@@ -57,6 +57,14 @@ freeclaude - Claude Code через OmniRoute
     -> вставить ключ -> "Проверить и сохранить API-ключ".
     Регион AWS - как у ключа (обычно us-east-1).
 
+    Где взять API-ключ Kiro? В аккаунте Kiro: app.kiro.dev
+    -> раздел "API Keys" -> "Create key" (значение ksk_... показывают
+    один раз; нужен платный тариф). Региона "Россия" у AWS нет:
+    профиль Kiro живёт в us-east-1 или eu-central-1, и ключ привязан
+    к региону аккаунта - проверка: kiro-check --check-kiro-key "ksk_...".
+    На бесплатном тарифе ключ не нужен: подключайте по OAuth
+    (Builder ID / Google / GitHub / Auto-Import / Import Token).
+
     Ошибка "Invalid Kiro API key or AWS region" при сохранении ключа?
     Шлюз проверяет ключ живым запросом, и это тот же отказ. Проверьте
     ключ заранее (оба региона: us-east-1 / eu-central-1):
