@@ -193,6 +193,7 @@ echo  Переменные окружения:
 echo    OMNIROUTE_PORT          порт шлюза, по умолчанию 20128
 echo    OMNIROUTE_SERVER_HOST   адрес прослушивания, по умолчанию 127.0.0.1
 echo    REQUIRE_API_KEY=true    требовать ключ OmniRoute для запросов к /v1
+echo    FREE_CLAUDE_NO_DASHBOARD=1  не открывать дашборд автоматически
 echo.
 echo  Файлы рядом:
 echo    install.bat              установка комплекта в C:\bat и автозапуск
@@ -391,7 +392,7 @@ echo    Дашборд: http://localhost:%OR_PORT%/dashboard/providers
 echo    Проверить подключения: omniroute providers list
 echo  ------------------------------------------------------------
 echo.
-start "" "http://localhost:%OR_PORT%/dashboard/providers"
+if not defined FREE_CLAUDE_NO_DASHBOARD start "" "http://localhost:%OR_PORT%/dashboard/providers"
 exit /b 0
 
 rem --- необязательный ключ OmniRoute из файла --------------------------

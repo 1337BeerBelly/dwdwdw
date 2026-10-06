@@ -39,6 +39,11 @@ freeclaude - Claude Code через OmniRoute
 
     kiro-check              проверка доменов, шлюза, прокси и часов
 
+    Дашборд http://localhost:20128 - локальная панель управления
+    (не внешний сайт). Обычно там ничего делать не нужно: закройте
+    вкладку и вернитесь в окно с Claude Code. Запретить автооткрытие:
+    set FREE_CLAUDE_NO_DASHBOARD=1
+
     Если при входе через Google/GitHub появляется
     "Connection Failed / invalid_token_response":
       1. проверьте версию: omniroute --version (нужна 3.8.50+,
