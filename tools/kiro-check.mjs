@@ -7,6 +7,10 @@
  * состояние локального шлюза OmniRoute, прокси, часы и файл hosts.
  *
  *   node kiro-check.mjs [--json] [--port 20128] [--timeout 8000] [--no-pause]
+ *
+ * v1.7: разбирает ANTHROPIC_AUTH_TOKEN у клиента — это пропуск в локальный шлюз,
+ * а не токен Kiro/Anthropic. Инструмент говорит, что именно туда положено и что
+ * с этим делать (частая путаница при подключении Kiro по OAuth).
  */
 
 import dns from "node:dns";
@@ -52,6 +56,11 @@ const HELP = `
   Проверка клиента (в отчёте) показывает, куда на самом деле смотрит Claude
   Code: переменные ANTHROPIC_* и файл ~/.claude/settings.json. Если там чужой
   адрес — запросы уходят мимо вашего шлюза (частая причина ошибок 429).
+
+  Отдельно разбирается ANTHROPIC_AUTH_TOKEN: это пропуск в ваш локальный шлюз,
+  а НЕ токен Kiro и не токен Anthropic. Инструмент покажет, что там лежит
+  (ключ OmniRoute sk-…, служебное значение, токен Kiro/AWS) и что с этим делать.
+  Для подключения Kiro по OAuth (Учётная запись OAuth) заполнять его не нужно.
 
   --test-call отправляет в ваш локальный шлюз один короткий запрос (model auto,
   16 токенов) и печатает статус, тело ответа и служебные заголовки OmniRoute.
@@ -326,12 +335,40 @@ function isLocalUrl(value) {
 }
 
 /** Куда на самом деле смотрит Claude Code: переменные окружения и settings.json. */
+/** Что за значение лежит в ANTHROPIC_AUTH_TOKEN: пропуск в шлюз или чужой токен. */
+function classifyClientToken(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "empty";
+  if (value === "omniroute-no-auth") return "sentinel";
+  if (/^sk-/.test(value)) return "omniroute";
+  // Токены Kiro/AWS: OAuth-аккаунт (aoa…), refresh-токен (aor…), старый формат.
+  if (/^(?:aoa|aor|AQAAA)[A-Za-z0-9._-]{8,}$/i.test(value)) return "kiro";
+  // Токен доступа в формате JWT (IDC / Builder ID / чужие шлюзы).
+  if (/^ey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\./.test(value)) return "jwt";
+  return "other";
+}
+
+const TOKEN_TEXT = {
+  sentinel: "служебное значение freeclaude — шлюз принимает его, пока REQUIRE_API_KEY выключен (по умолчанию)",
+  omniroute: "ключ OmniRoute, всё верно",
+  kiro: "это токен Kiro/AWS, а не ключ шлюза",
+  jwt: "похоже на токен доступа (JWT), а не на ключ шлюза",
+  other: "произвольное значение — шлюз примет его, только если REQUIRE_API_KEY выключен (по умолчанию)",
+};
+
+const KIRO_TOKEN_HINT = [
+  "Токены Kiro живут в подключении на шлюзе (Dashboard → Providers → Kiro), а не здесь.",
+  "Если Kiro подключён по OAuth (Учётная запись OAuth) — в ANTHROPIC_AUTH_TOKEN писать нечего: он к Kiro не относится.",
+  "Оставьте там ключ OmniRoute (sk-…) или вообще ничего — freeclaude подставит служебное значение.",
+];
+
 function clientTarget(port) {
   const env = {};
   for (const key of ANTHROPIC_ENV_KEYS) {
     if (process.env[key]) env[key] = MASK(process.env[key]);
   }
   const files = [];
+  const auth = [];
   const foreign = [];
   const notes = [];
   const candidates = [
@@ -350,6 +387,40 @@ function clientTarget(port) {
     }
   };
   checkUrl("ANTHROPIC_BASE_URL (переменная)", process.env.ANTHROPIC_BASE_URL);
+
+  // Токен клиента. ANTHROPIC_AUTH_TOKEN — это пропуск в ваш шлюз, поэтому его
+  // содержимое не имеет отношения к способу подключения Kiro (OAuth/ключ).
+  const checkToken = (where, value) => {
+    const kind = classifyClientToken(value);
+    if (kind === "empty") return;
+    const item = {
+      label: "ANTHROPIC_AUTH_TOKEN",
+      where,
+      shown: MASK(value),
+      kind,
+      text: TOKEN_TEXT[kind],
+      hint: kind === "kiro" || kind === "jwt" ? KIRO_TOKEN_HINT : [],
+    };
+    auth.push(item);
+  };
+  // ANTHROPIC_API_KEY перебивает Bearer-токен (уходит как x-api-key) и включает
+  // у Claude Code экран «Detected a custom API key…» — его лучше не задавать.
+  const checkApiKeyVar = (where, value) => {
+    if (!value || typeof value !== "string" || !value.trim()) return;
+    auth.push({
+      label: "ANTHROPIC_API_KEY",
+      where,
+      shown: MASK(value),
+      kind: "apikey",
+      text: "лишний: Claude Code отправит его как x-api-key и покажет экран «Detected a custom API key…»",
+      hint: [
+        "Уберите его: если задавали в переменных среды — снимите значение, если в settings.json — удалите строку; затем перезапустите терминал.",
+        "Токен шлюза должен ходить только как ANTHROPIC_AUTH_TOKEN.",
+      ],
+    });
+  };
+  checkToken("переменная", process.env.ANTHROPIC_AUTH_TOKEN);
+  checkApiKeyVar("переменная", process.env.ANTHROPIC_API_KEY);
 
   // Модели: Claude Code просит имя без префикса, а шлюз требует префикс, когда
   // такую модель отдают несколько маршрутов (400 Ambiguous model).
@@ -393,13 +464,17 @@ function clientTarget(port) {
     const envBlock = data && typeof data.env === "object" && data.env ? data.env : {};
     const shown = {};
     for (const [key, value] of Object.entries(envBlock)) {
-      if (/^(ANTHROPIC|CLAUDE_CODE)/i.test(key)) shown[key] = MASK(value);
+      if (/^(ANTHROPIC|CLAUDE_CODE)/i.test(key) && key !== "ANTHROPIC_AUTH_TOKEN" && key !== "ANTHROPIC_API_KEY") {
+        shown[key] = MASK(value);
+      }
     }
     files.push({ path: file, env: shown, count: Object.keys(envBlock).length });
     checkUrl(`${file} → env.ANTHROPIC_BASE_URL`, envBlock.ANTHROPIC_BASE_URL);
+    checkToken(`${file} → env`, envBlock.ANTHROPIC_AUTH_TOKEN);
+    checkApiKeyVar(`${file} → env`, envBlock.ANTHROPIC_API_KEY);
     for (const key of MODEL_VARS) checkModelVar(path.basename(path.dirname(file)), key, envBlock[key]);
   }
-  return { env, files, foreign, notes };
+  return { env, files, auth, foreign, notes };
 }
 
 /** Один короткий запрос через локальный шлюз: видно, кто отвечает и чем. */
@@ -584,7 +659,18 @@ async function main({ flags }) {
   for (const note of client.notes) {
     line("!", "Модель", note.text);
   }
-  const otherVars = envKeys.filter((k) => k !== "ANTHROPIC_BASE_URL");
+  if (client.auth.length) {
+    for (const item of client.auth) {
+      const bad = item.kind === "kiro" || item.kind === "jwt" || item.kind === "apikey";
+      line(bad ? "!" : "+", item.label, `${item.shown} — ${item.text} (${item.where})`);
+      for (const hint of item.hint || []) console.log(`        ${hint}`);
+    }
+  } else {
+    line("+", "ANTHROPIC_AUTH_TOKEN", "не задан — freeclaude подставит служебное значение; шлюз примет его, пока REQUIRE_API_KEY выключен (по умолчанию)");
+  }
+  const otherVars = envKeys.filter(
+    (k) => k !== "ANTHROPIC_BASE_URL" && k !== "ANTHROPIC_AUTH_TOKEN" && k !== "ANTHROPIC_API_KEY"
+  );
   if (otherVars.length) {
     line("+", "Переменные ANTHROPIC_*", otherVars.map((k) => `${k}=${client.env[k]}`).join(", "));
   }
@@ -756,6 +842,12 @@ async function main({ flags }) {
     if (!results.local.omniroute.ok) {
       console.log("    • Сам шлюз OmniRoute не отвечает — сначала поднимите его: omniroute serve --daemon --no-open");
     }
+  }
+  if (client.auth.some((a) => a.kind === "kiro" || a.kind === "jwt")) {
+    console.log("    • ANTHROPIC_AUTH_TOKEN: там лежит токен Kiro, а нужен пропуск в шлюз — уберите его (подробности выше).");
+  }
+  if (client.auth.some((a) => a.kind === "apikey")) {
+    console.log("    • ANTHROPIC_API_KEY лучше убрать совсем: он перебивает Bearer-токен и путает Claude Code.");
   }
   console.log("  ------------------------------------------------------------");
   console.log("  Подробный разбор: docs/KIRO_TROUBLESHOOTING.md");

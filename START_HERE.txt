@@ -71,6 +71,12 @@ freeclaude - Claude Code через OmniRoute
     Помогает: пересоздать API-ключ, перейти на claude-sonnet-4.5,
     либо подключить Kiro через Builder ID / Auto-Import / Import Token.
 
+    Что писать в ANTHROPIC_AUTH_TOKEN? Это пропуск в ваш шлюз,
+    а НЕ токен Kiro. Если Kiro подключён по OAuth (Учётная запись
+    OAuth) - заполнять не нужно; при REQUIRE_API_KEY - ключ
+    OmniRoute (sk-...). Проверка: kiro-check (строка
+    ANTHROPIC_AUTH_TOKEN). Разбор - docs\TROUBLESHOOTING.md, §19.
+
     Ошибка 429 "Budget has been exceeded" (числа вроде 100000000)?
     Это текст стороннего шлюза (LiteLLM), а не Kiro. Проверьте:
       kiro-check                 - куда смотрит Claude Code (ANTHROPIC_BASE_URL,

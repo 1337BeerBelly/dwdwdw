@@ -298,5 +298,56 @@ console.log("\n10) kiro-check --test-call: Kiro отклонил ключ (403 b
   server.close();
 }
 
+console.log("\n11) kiro-check: ANTHROPIC_AUTH_TOKEN — пропуск в шлюз, а не токен Kiro");
+{
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawn } = await import("node:child_process");
+
+  const withSettings = async (settings, extraEnv = {}) => {
+    const home = mkdtempSync(join(tmpdir(), "kiro-auth-"));
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify(settings));
+    const env = { ...process.env, HOME: home, USERPROFILE: home, ...extraEnv };
+    delete env.ANTHROPIC_AUTH_TOKEN;
+    if (!("ANTHROPIC_API_KEY" in extraEnv)) delete env.ANTHROPIC_API_KEY;
+    const stdout = await new Promise((resolve) => {
+      const child = spawn(process.execPath, ["tools/kiro-check.mjs", "--no-pause", "--timeout", "2000"], {
+        cwd: new URL("..", import.meta.url).pathname,
+        env,
+      });
+      let out = "";
+      child.stdout.on("data", (d) => (out += d));
+      child.on("close", () => resolve(out));
+    });
+    rmSync(home, { recursive: true, force: true });
+    return stdout;
+  };
+
+  const kiroToken = await withSettings({
+    env: { ANTHROPIC_AUTH_TOKEN: "aoaAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJ" },
+  });
+  ok("видит токен Kiro", /это токен Kiro\/AWS, а не ключ шлюза/.test(kiroToken));
+  ok("объясняет случай OAuth", /Учётная запись OAuth/.test(kiroToken));
+  ok("советует ключ OmniRoute или пусто", /Оставьте там ключ OmniRoute/.test(kiroToken));
+  ok("добавляет пункт в диагноз", /там лежит токен Kiro/.test(kiroToken));
+
+  const gatewayKey = await withSettings({
+    env: { ANTHROPIC_AUTH_TOKEN: "sk-abcdefghijklmnopqrstuvwx" },
+  });
+  ok("узнаёт ключ OmniRoute", /ключ OmniRoute, всё верно/.test(gatewayKey));
+  ok("не помечает ключ шлюза как проблему", !/\[!\] ANTHROPIC_AUTH_TOKEN/.test(gatewayKey));
+
+  const apiKey = await withSettings(
+    { env: { ANTHROPIC_MODEL: "kr/claude-sonnet-4.5" } },
+    { ANTHROPIC_API_KEY: "sk-ant-abcdefghijklmnop" }
+  );
+  ok("предупреждает про ANTHROPIC_API_KEY", /лишний: Claude Code отправит его как x-api-key/.test(apiKey));
+
+  const nothing = await withSettings({ env: { ANTHROPIC_MODEL: "kr/claude-sonnet-4.5" } });
+  ok("поясняет, что заполнять не обязательно", /не задан — freeclaude подставит служебное значение/.test(nothing));
+}
+
 console.log(`\nПроверок: ${total}, провалено: ${failed}`);
 process.exit(failed ? 1 : 0);

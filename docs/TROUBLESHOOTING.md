@@ -382,7 +382,36 @@ kiro-check --test-call --provider kiro --model kr/claude-sonnet-4.5
 
 ---
 
-## 19. Как всё удалить
+## 19. Что писать в `ANTHROPIC_AUTH_TOKEN`
+
+Короткий ответ: **это пропуск в ваш локальный шлюз OmniRoute, а не токен Kiro и не токен
+Anthropic.** Способ подключения Kiro (OAuth-аккаунт, API-ключ, Import Token) на эту переменную
+никак не влияет: токены Kiro живут только в подключении на шлюзе, в **Dashboard → Providers → Kiro**.
+
+| Ваш случай | Что писать в `ANTHROPIC_AUTH_TOKEN` |
+| --- | --- |
+| Обычная работа на этой машине (`REQUIRE_API_KEY` выключен — так по умолчанию) | **Ничего.** `freeclaude` подставит служебное значение, шлюз его примет |
+| Включён `REQUIRE_API_KEY=true` или ходите в шлюз с другого устройства | **Ключ OmniRoute**: Dashboard → Endpoints → Create key, значение вида `sk-…`. Можно положить его в `%USERPROFILE%\.freeclaude\apikey.txt` — `freeclaude` передаст его сам |
+| Kiro подключён **по OAuth** («Учётная запись OAuth») | **Ничего.** OAuth-токен Kiro (`aoa…` / `aor…`) в эту переменную не вписывается — Claude Code его видеть не должен |
+| Вам дали ключ `sk-3QE…` (или другой) от чужого шлюза | Это ключ того шлюза; с вашим OmniRoute он не работает — см. §16 про «Budget has been exceeded» |
+
+Куда смотреть: `%USERPROFILE%\.claude\settings.json` → блок `env.ANTHROPIC_AUTH_TOKEN`
+(в комплекте он уже настроен правильно). Переменную `ANTHROPIC_API_KEY` лучше не задавать
+совсем: Claude Code отправляет её как `x-api-key`, она перебивает токен и включает экран
+«Detected a custom API key…».
+
+Проверить, что именно лежит в переменной, можно одной командой:
+
+```
+kiro-check
+```
+
+Инструмент печатает строку `ANTHROPIC_AUTH_TOKEN` и сам поясняет значение: `[+] ключ OmniRoute,
+всё верно` — порядок; `[!] это токен Kiro/AWS, а не ключ шлюза` — замените, как в таблице выше.
+
+---
+
+## 20. Как всё удалить
 
 ```
 freeclaude-stop --autostart-off     остановить шлюз и снять автозапуск
